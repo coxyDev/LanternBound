@@ -1,0 +1,24 @@
+Early Game (Core Combat & Utility)
+1. Light Slash – A basic melee attack using a quick arc of light. (Starting ability)
+
+2. Solar Flare – A blinding flash that stuns enemies in a radius. (First upgrade, defensive and tactical)
+
+3. Light Dash – A quick dash forward that leaves a damaging light trail. (Mobility-focused, enables new platforming challenges)
+
+Mid-Game (More Advanced Combat & Puzzle Abilities)
+4. Prism Beam – A concentrated beam of light that burns through shadows. (Long-range, resource-heavy)
+
+5. Glowing Rift – Creates a temporary rift in space where light bends, slowing down enemies caught within its field.
+
+6. Luminous Chains – Chains of light that tether enemies or pull objects. (Versatile for combat and traversal)
+
+Late-Game (Mastery & Strategic Abilities)
+Refracted Shot – A projectile that bounces off reflective surfaces. (For tricky angles in combat and puzzles)
+
+7. Illuminated Ward – A defensive shield that repels projectiles and weakens dark-based enemies. (Survivability)
+
+8. Phantom Glow – Creates a temporary clone of the player made of light. (Decoy for distractions and platforming tricks)
+
+9. Shadow Split – A dual-light projection attack hitting enemies at multiple angles. (High-damage multi-target attack)
+
+10. Eclipsing Veil – Temporarily dims all light sources, causing enemies to lose track of the player. (Stealth and tactical play)

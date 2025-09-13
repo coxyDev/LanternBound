@@ -1,8 +1,14 @@
 ﻿using UnityEngine;
+using System.Collections;
+using System.Collections.Generic; 
+using UnityEngine.Rendering.Universal;
 
 [RequireComponent(typeof(Collider2D))]
 public class CollectibleLantern : MonoBehaviour
 {
+    [Header("2D Lighting")]
+    [SerializeField] private Light2D _collectibleLight2D;
+
     [Header("Pickup Effects")]
     [SerializeField] private AudioClip _pickupSound;
     [SerializeField] private ParticleSystem _pickupEffect;
@@ -22,6 +28,17 @@ public class CollectibleLantern : MonoBehaviour
         _startPosition = transform.position;
         _audioSource = GetComponent<AudioSource>();
 
+        if (_collectibleLight2D == null)
+        {
+            _collectibleLight2D = gameObject.AddComponent<Light2D>();
+        }
+
+        _collectibleLight2D.lightType = Light2D.LightType.Point;
+        _collectibleLight2D.intensity = 1f;
+        _collectibleLight2D.pointLightInnerRadius = 0.5f;
+        _collectibleLight2D.pointLightOuterRadius = 4f;
+        _collectibleLight2D.color = Color.yellow;
+
         // Setup glow light
         if (_glowLight == null)
             _glowLight = GetComponent<Light>();
@@ -38,6 +55,8 @@ public class CollectibleLantern : MonoBehaviour
         var collider = GetComponent<Collider2D>();
         if (collider != null)
             collider.isTrigger = true;
+
+        StartCoroutine(PulsingLight());
     }
 
     private void Update()
@@ -62,6 +81,18 @@ public class CollectibleLantern : MonoBehaviour
         {
             float pulseIntensity = 1f + Mathf.Sin(Time.time * _floatSpeed * 1.5f) * 0.3f;
             _glowLight.intensity = pulseIntensity;
+        }
+    }
+
+    private IEnumerator PulsingLight()
+    {
+        float baseIntensity = 1f;
+
+        while (!_collected && _collectibleLight2D != null)
+        {
+            float pulseIntensity = baseIntensity + Mathf.Sin(Time.time * 2f) * 0.3f;
+            _collectibleLight2D.intensity = pulseIntensity;
+            yield return null;
         }
     }
 

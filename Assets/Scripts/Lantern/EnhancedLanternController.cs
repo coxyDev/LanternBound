@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
+using UnityEngine.Rendering.Universal;
 
 /// <summary>
 /// Streamlined Lantern Controller that works with DualProgressionSystem
@@ -8,6 +9,10 @@ using System.Collections;
 /// </summary>
 public class EnhancedLanternController : MonoBehaviour
 {
+    [Header("2D Lighting")]
+    [SerializeField] private Light2D _lanternLight2D;
+    [SerializeField] private Light2D _playerInnerLight2D;
+
     [Header("Light Type System")]
     [SerializeField] private LightType _currentLightType = LightType.None;
     [SerializeField] private List<LightType> _discoveredLightTypes = new List<LightType>();
@@ -111,6 +116,7 @@ public class EnhancedLanternController : MonoBehaviour
     private void Awake()
     {
         InitializeLanternSystem();
+        SetupLighting();
     }
 
     private void Update()
@@ -125,6 +131,38 @@ public class EnhancedLanternController : MonoBehaviour
     }
 
     #region Initialization
+
+    private void SetupLighting()
+    {
+        // Setup lantern light
+        if (_lanternLight2D == null)
+        {
+            GameObject lightObj = new GameObject("LanternLight2D");
+            lightObj.transform.SetParent(transform);
+            _lanternLight2D = lightObj.AddComponent<Light2D>();
+        }
+
+        _lanternLight2D.lightType = Light2D.LightType.Point;
+        _lanternLight2D.intensity = 1.5f;
+        _lanternLight2D.pointLightInnerRadius = 0.5f;
+        _lanternLight2D.pointLightOuterRadius = 8f;
+        _lanternLight2D.color = Color.yellow;
+        _lanternLight2D.enabled = false; // Start disabled
+
+        // Setup player inner light
+        if (_playerInnerLight2D == null)
+        {
+            GameObject innerLightObj = new GameObject("PlayerInnerLight2D");
+            innerLightObj.transform.SetParent(transform);
+            _playerInnerLight2D = innerLightObj.AddComponent<Light2D>();
+        }
+
+        _playerInnerLight2D.lightType = Light2D.LightType.Point;
+        _playerInnerLight2D.intensity = 1.2f;
+        _playerInnerLight2D.pointLightInnerRadius = 0.2f;
+        _playerInnerLight2D.pointLightOuterRadius = 2f;
+        _playerInnerLight2D.color = new Color(1f, 0.8f, 0.6f); // Warm glow
+    }
 
     private void InitializeLanternSystem()
     {
@@ -379,6 +417,10 @@ public class EnhancedLanternController : MonoBehaviour
             Debug.Log("Not enough mana to activate lantern!");
             return;
         }
+        if (_lanternLight2D != null)
+        {
+            _lanternLight2D.enabled = true;
+        }
 
         // Consume mana
         ConsumeMana(activationCost);
@@ -403,6 +445,11 @@ public class EnhancedLanternController : MonoBehaviour
         if (lightData?.deactivationSound != null && _audioSource != null)
         {
             _audioSource.PlayOneShot(lightData.deactivationSound);
+        }
+
+        if (_lanternLight2D != null)
+        {
+            _lanternLight2D.enabled = false;
         }
 
         Debug.Log("Lantern deactivated");
@@ -603,7 +650,20 @@ public class EnhancedLanternController : MonoBehaviour
             glowColor.a = (_innerLightStrength / _maxInnerLightStrength) * 0.3f;
             _characterGlow.color = glowColor;
         }
-    }
+
+        if (_playerInnerLight2D != null)
+        {
+            float targetIntensity = 0.6f + (_innerLightStrength / _maxInnerLightStrength) * 0.8f;
+            _playerInnerLight2D.intensity = targetIntensity;
+
+            Color targetColor = Color.Lerp(
+                new Color(0.8f, 0.6f, 0.4f),
+                Color.white,
+                _innerLightStrength / _maxInnerLightStrength
+            );
+            _playerInnerLight2D.color = targetColor;
+        }
+}
 
     private void UpdateBeamVisuals(Vector2 direction)
     {

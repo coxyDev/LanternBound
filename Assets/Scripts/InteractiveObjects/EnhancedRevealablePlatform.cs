@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 [RequireComponent(typeof(SpriteRenderer), typeof(BoxCollider2D))]
 public class EnhancedRevealablePlatform : MonoBehaviour, ILightInteractable
@@ -7,6 +8,9 @@ public class EnhancedRevealablePlatform : MonoBehaviour, ILightInteractable
     [SerializeField] private Color _hiddenColor = new Color(1, 1, 1, 0.1f);
     [SerializeField] private Color _visibleColor = Color.white;
     [SerializeField] private bool _startHidden = true;
+
+    [Header("2D Lighting")]
+    [SerializeField] private Light2D _platformLight2D;
 
     [Header("Light Requirements")]
     [SerializeField] private EnhancedLanternController.LightType _requiredLightType = EnhancedLanternController.LightType.Ember;
@@ -31,6 +35,19 @@ public class EnhancedRevealablePlatform : MonoBehaviour, ILightInteractable
         {
             SetVisible();
         }
+
+        if (_platformLight2D == null)
+        {
+            _platformLight2D = gameObject.AddComponent<Light2D>();
+        }
+
+        _platformLight2D.lightType = Light2D.LightType.Point;
+        _platformLight2D.intensity = 0.8f;
+        _platformLight2D.pointLightInnerRadius = 0.2f;
+        _platformLight2D.pointLightOuterRadius = 3f;
+        _platformLight2D.color = Color.cyan;
+        _platformLight2D.enabled = false; // Hidden by default
+
     }
 
     public void OnIlluminated(EnhancedLanternController lantern)
@@ -42,6 +59,11 @@ public class EnhancedRevealablePlatform : MonoBehaviour, ILightInteractable
 
         IsIlluminated = true;
         SetVisible();
+
+        if (_platformLight2D != null)
+        {
+            _platformLight2D.enabled = true;
+        }
 
         Debug.Log($"Platform revealed by {lantern.CurrentLightType}!");
     }
@@ -56,6 +78,11 @@ public class EnhancedRevealablePlatform : MonoBehaviour, ILightInteractable
         {
             SetHidden();
             Debug.Log("Platform hidden again");
+        }
+
+        if (_platformLight2D != null)
+        {
+            _platformLight2D.enabled = false;
         }
     }
 

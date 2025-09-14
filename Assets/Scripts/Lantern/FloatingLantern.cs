@@ -4,7 +4,7 @@ using System.Collections;
 using UnityEngine.Rendering.Universal;
 
 /// <summary>
-/// FIXED: Separate lantern object that floats near the player instead of being part of them
+/// FIXED: Separate lantern object with proper hierarchy search for EnhancedLanternController
 /// </summary>
 public class FloatingLantern : MonoBehaviour
 {
@@ -60,7 +60,8 @@ public class FloatingLantern : MonoBehaviour
         // Find player if not assigned
         if (_player == null)
         {
-            _player = FindObjectOfType<PlayerMovement>()?.transform;
+            // FIXED: Search for player by finding PlayerMovement or EnhancedLanternController
+            _player = FindPlayerTransform();
             if (_player == null)
             {
                 Debug.LogError("❌ FloatingLantern: No player found!");
@@ -68,11 +69,11 @@ public class FloatingLantern : MonoBehaviour
             }
         }
 
-        // Find controller
-        _controller = _player.GetComponent<EnhancedLanternController>();
+        // FIXED: Find controller using hierarchy search
+        _controller = FindEnhancedLanternController(_player.gameObject);
         if (_controller == null)
         {
-            Debug.LogError("❌ FloatingLantern: No EnhancedLanternController found on player!");
+            Debug.LogError("❌ FloatingLantern: No EnhancedLanternController found in player hierarchy!");
         }
 
         _baseOffset = _offsetFromPlayer;
@@ -80,6 +81,109 @@ public class FloatingLantern : MonoBehaviour
 
         // Start at target position
         transform.position = _targetPosition;
+
+        if (_debugMode)
+        {
+            Debug.Log($"✓ FloatingLantern setup complete");
+            Debug.Log($"  Player: {_player.name}");
+            Debug.Log($"  Controller: {(_controller != null ? _controller.name : "Not Found")}");
+        }
+    }
+
+    /// <summary>
+    /// FIXED: Find player transform by searching for known player components
+    /// </summary>
+    private Transform FindPlayerTransform()
+    {
+        // Try to find by PlayerMovement component
+        var playerMovement = FindObjectOfType<PlayerMovement>();
+        if (playerMovement != null)
+        {
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Found player via PlayerMovement: {playerMovement.name}");
+            }
+            return playerMovement.transform;
+        }
+
+        // Try to find by EnhancedLanternController
+        var lanternController = FindObjectOfType<EnhancedLanternController>();
+        if (lanternController != null)
+        {
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Found player via EnhancedLanternController: {lanternController.name}");
+            }
+            return lanternController.transform;
+        }
+
+        // Try to find by Player tag
+        var playerByTag = GameObject.FindWithTag("Player");
+        if (playerByTag != null)
+        {
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Found player via Player tag: {playerByTag.name}");
+            }
+            return playerByTag.transform;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// FIXED: Search hierarchy to find EnhancedLanternController
+    /// </summary>
+    private EnhancedLanternController FindEnhancedLanternController(GameObject startObject)
+    {
+        if (_debugMode)
+        {
+            Debug.Log($"🔍 Searching for EnhancedLanternController starting from: {startObject.name}");
+        }
+
+        // Check current object
+        var controller = startObject.GetComponent<EnhancedLanternController>();
+        if (controller != null)
+        {
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Found EnhancedLanternController on: {startObject.name}");
+            }
+            return controller;
+        }
+
+        // Check parent hierarchy
+        Transform current = startObject.transform.parent;
+        while (current != null)
+        {
+            controller = current.GetComponent<EnhancedLanternController>();
+            if (controller != null)
+            {
+                if (_debugMode)
+                {
+                    Debug.Log($"✓ Found EnhancedLanternController on parent: {current.name}");
+                }
+                return controller;
+            }
+            current = current.parent;
+        }
+
+        // Check children hierarchy
+        controller = startObject.GetComponentInChildren<EnhancedLanternController>();
+        if (controller != null)
+        {
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Found EnhancedLanternController on child: {controller.name}");
+            }
+            return controller;
+        }
+
+        if (_debugMode)
+        {
+            Debug.LogError($"❌ No EnhancedLanternController found in hierarchy of: {startObject.name}");
+        }
+        return null;
     }
 
     private void Update()
@@ -136,7 +240,6 @@ public class FloatingLantern : MonoBehaviour
         _beamRenderer.endWidth = 0.8f;
         _beamRenderer.positionCount = 2;
         _beamRenderer.startColor = new Color(1f, 0.9f, 0.6f, 0.7f);
-        _beamRenderer.endColor = new Color(1f, 0.9f, 0.6f, 0.7f);
 
         // Setup spotlight
         if (_spotLight == null)

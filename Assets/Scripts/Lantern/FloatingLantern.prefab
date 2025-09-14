@@ -45,7 +45,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _player: {fileID: 0}
-  _offsetFromPlayer: {x: 1.5, y: 0.8, z: 0}
+  _offsetFromPlayer: {x: -0.8, y: 0.7, z: 0}
   _followSpeed: 8
   _smoothRotation: 1
   _rotationSpeed: 5

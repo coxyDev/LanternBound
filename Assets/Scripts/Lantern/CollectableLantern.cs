@@ -147,7 +147,69 @@ public class CollectibleLantern : MonoBehaviour
             return;
         }
 
-        CollectLantern(other.gameObject);
+        // FIXED: Find the actual player root GameObject
+        GameObject playerRoot = FindPlayerRoot(other.gameObject);
+        if (playerRoot != null)
+        {
+            CollectLantern(playerRoot);
+        }
+        else
+        {
+            Debug.LogError("❌ Could not find player root with EnhancedLanternController!");
+        }
+    }
+
+    /// <summary>
+    /// FIXED: Search hierarchy to find the GameObject with EnhancedLanternController
+    /// </summary>
+    private GameObject FindPlayerRoot(GameObject startObject)
+    {
+        if (_debugMode)
+        {
+            Debug.Log($"🔍 Searching for player root starting from: {startObject.name}");
+        }
+
+        // Check current object
+        if (startObject.GetComponent<EnhancedLanternController>() != null)
+        {
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Found EnhancedLanternController on: {startObject.name}");
+            }
+            return startObject;
+        }
+
+        // Check parent hierarchy
+        Transform current = startObject.transform.parent;
+        while (current != null)
+        {
+            if (current.GetComponent<EnhancedLanternController>() != null)
+            {
+                if (_debugMode)
+                {
+                    Debug.Log($"✓ Found EnhancedLanternController on parent: {current.name}");
+                }
+                return current.gameObject;
+            }
+            current = current.parent;
+        }
+
+        // Check children hierarchy
+        var controllerInChildren = startObject.GetComponentInChildren<EnhancedLanternController>();
+        if (controllerInChildren != null)
+        {
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Found EnhancedLanternController on child: {controllerInChildren.name}");
+            }
+            return controllerInChildren.gameObject;
+        }
+
+        if (_debugMode)
+        {
+            Debug.LogError($"❌ No EnhancedLanternController found in hierarchy of: {startObject.name}");
+        }
+        return null;
     }
 
     private void CollectLantern(GameObject player)
@@ -159,7 +221,7 @@ public class CollectibleLantern : MonoBehaviour
         if (_debugMode)
         {
             Debug.Log("🔦 === LANTERN COLLECTION STARTED ===");
-            Debug.Log($"Player GameObject: {player.name}");
+            Debug.Log($"Player Root GameObject: {player.name}");
         }
 
         // STEP 1: Spawn floating lantern
@@ -171,7 +233,7 @@ public class CollectibleLantern : MonoBehaviour
         {
             if (_debugMode)
             {
-                Debug.Log($"✓ Found EnhancedLanternController");
+                Debug.Log($"✓ Found EnhancedLanternController on {player.name}");
                 Debug.Log($"  Controller Enabled: {lanternController.enabled}");
                 Debug.Log($"  Current HasLantern: {lanternController.HasLantern}");
             }
@@ -191,7 +253,7 @@ public class CollectibleLantern : MonoBehaviour
         }
         else
         {
-            Debug.LogError("❌ EnhancedLanternController not found on player!");
+            Debug.LogError("❌ EnhancedLanternController not found even after hierarchy search!");
         }
 
         // STEP 3: Play effects immediately
@@ -213,13 +275,8 @@ public class CollectibleLantern : MonoBehaviour
             var floatingLanternComponent = floatingLantern.GetComponent<FloatingLantern>();
             if (floatingLanternComponent != null)
             {
-                // Set player reference through reflection or public property
-                var playerField = typeof(FloatingLantern).GetField("_player",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                if (playerField != null)
-                {
-                    playerField.SetValue(floatingLanternComponent, player.transform);
-                }
+                // FIXED: Set player reference using our safe method
+                SetFloatingLanternPlayer(floatingLanternComponent, player.transform);
             }
 
             if (_debugMode)
@@ -233,13 +290,8 @@ public class CollectibleLantern : MonoBehaviour
             floatingLantern = new GameObject("FloatingLantern");
             var floatingLanternComponent = floatingLantern.AddComponent<FloatingLantern>();
 
-            // Set player reference through reflection
-            var playerField = typeof(FloatingLantern).GetField("_player",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (playerField != null)
-            {
-                playerField.SetValue(floatingLanternComponent, player.transform);
-            }
+            // FIXED: Set player reference using our safe method
+            SetFloatingLanternPlayer(floatingLanternComponent, player.transform);
 
             if (_debugMode)
             {
@@ -248,6 +300,34 @@ public class CollectibleLantern : MonoBehaviour
         }
 
         return floatingLantern;
+    }
+
+    /// <summary>
+    /// FIXED: Safe method to set FloatingLantern player reference
+    /// </summary>
+    private void SetFloatingLanternPlayer(FloatingLantern floatingLantern, Transform player)
+    {
+        try
+        {
+            var playerField = typeof(FloatingLantern).GetField("_player",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (playerField != null)
+            {
+                playerField.SetValue(floatingLantern, player);
+                if (_debugMode)
+                {
+                    Debug.Log($"✓ Set FloatingLantern player reference to: {player.name}");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("⚠️ Could not find _player field in FloatingLantern");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"❌ Error setting FloatingLantern player reference: {e.Message}");
+        }
     }
 
     private IEnumerator DelayedLanternAcquisition(EnhancedLanternController controller, GameObject player, GameObject floatingLantern)

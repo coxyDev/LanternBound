@@ -48,6 +48,10 @@ public class EnhancedLanternController : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private bool _debugMode = true;
 
+    [Header("Light Detection Debug")]
+    [SerializeField] private bool _showDebugRays = true;
+    [SerializeField] private bool _verboseLightDetection = true;
+
     // References to external systems
     private Light2D _playerInnerLight2D;
     private FloatingLantern _floatingLantern;
@@ -580,22 +584,31 @@ public class EnhancedLanternController : MonoBehaviour
 
     private void UpdateLanternBeam()
     {
-        if (_floatingLantern == null) return;
+        if (_floatingLantern == null)
+        {
+            if (_debugMode)
+                Debug.LogWarning("⚠️ FloatingLantern is null - cannot update beam");
+            return;
+        }
 
         Vector2 beamDirection = GetBeamDirection();
         var lightData = GetLightTypeData(_currentLightType);
-        if (lightData == null) return;
+        if (lightData == null)
+        {
+            if (_debugMode)
+                Debug.LogWarning("⚠️ Light data is null - cannot update beam");
+            return;
+        }
 
         // Update floating lantern beam visuals
         _floatingLantern.UpdateBeam(beamDirection, lightData.baseRange, lightData.lightColor);
 
-        // Perform light detection
+        // Perform enhanced light detection
         PerformLightDetection(beamDirection, lightData);
     }
 
     private Vector2 GetBeamDirection()
     {
-        // Mouse aiming
         if (_useMouseAiming && Input.mousePosition != Vector3.zero)
         {
             Vector3 mouseWorldPos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
@@ -629,9 +642,23 @@ public class EnhancedLanternController : MonoBehaviour
         float range = lightData.baseRange;
         float width = lightData.baseWidth;
 
+        if (_verboseLightDetection)
+        {
+            Debug.Log($"🔍 LIGHT DETECTION: Origin={beamOrigin}, Direction={beamDirection}, Range={range}, Width={width}");
+            Debug.Log($"  Layer Mask: {_lightInteractionLayers.value}");
+        }
+
         // Cast rays within beam cone
         float halfAngle = width * 0.5f;
         int rayCount = Mathf.Max(5, Mathf.RoundToInt(width / 5f));
+
+        if (_verboseLightDetection)
+        {
+            Debug.Log($"  Casting {rayCount} rays with half-angle: {halfAngle}°");
+        }
+
+        int raysHit = 0;
+        List<string> hitObjects = new List<string>();
 
         for (int i = 0; i < rayCount; i++)
         {
@@ -641,23 +668,46 @@ public class EnhancedLanternController : MonoBehaviour
 
             RaycastHit2D hit = Physics2D.Raycast(beamOrigin, rayDirection, range, _lightInteractionLayers);
 
-            if (_debugMode && hit.collider != null)
+            // Debug rays
+            if (_showDebugRays)
             {
-                Debug.DrawRay(beamOrigin, rayDirection * hit.distance, Color.yellow, 0.1f);
+                Color rayColor = hit.collider != null ? Color.green : Color.red;
+                float rayDistance = hit.collider != null ? hit.distance : range;
+                Debug.DrawRay(beamOrigin, rayDirection * rayDistance, rayColor, 0.1f);
             }
 
             if (hit.collider != null)
             {
+                raysHit++;
+                if (!hitObjects.Contains(hit.collider.name))
+                {
+                    hitObjects.Add(hit.collider.name);
+                }
+
                 var lightInteractable = hit.collider.GetComponent<ILightInteractable>();
                 if (lightInteractable != null && !_currentlyIlluminated.Contains(lightInteractable))
                 {
                     _currentlyIlluminated.Add(lightInteractable);
-                    if (_debugMode)
+
+                    if (_verboseLightDetection)
                     {
-                        Debug.Log($"💡 Light hitting: {hit.collider.name}");
+                        Debug.Log($"💡 RAY HIT: {hit.collider.name} at distance {hit.distance:F2}");
+                        Debug.Log($"  Has ILightInteractable: ✓");
+                        Debug.Log($"  Object Layer: {hit.collider.gameObject.layer} ({LayerMask.LayerToName(hit.collider.gameObject.layer)})");
                     }
                 }
+                else if (lightInteractable == null && _verboseLightDetection)
+                {
+                    Debug.Log($"⚠️ RAY HIT: {hit.collider.name} but no ILightInteractable component found!");
+                }
             }
+        }
+
+        if (_verboseLightDetection)
+        {
+            Debug.Log($"🎯 LIGHT DETECTION SUMMARY: {raysHit}/{rayCount} rays hit objects");
+            Debug.Log($"  Hit Objects: {string.Join(", ", hitObjects)}");
+            Debug.Log($"  Interactable Objects Found: {_currentlyIlluminated.Count}");
         }
 
         ProcessIlluminationEvents();
@@ -672,9 +722,10 @@ public class EnhancedLanternController : MonoBehaviour
             {
                 illuminated.OnIlluminated(this);
                 OnObjectIlluminated?.Invoke(illuminated);
-                if (_debugMode)
+
+                if (_verboseLightDetection)
                 {
-                    Debug.Log($"✨ Object illuminated: {illuminated}");
+                    Debug.Log($"✨ OBJECT ILLUMINATED: {illuminated} - calling OnIlluminated()");
                 }
             }
         }
@@ -686,15 +737,17 @@ public class EnhancedLanternController : MonoBehaviour
             {
                 previously.OnLeftLight(this);
                 OnObjectLeftLight?.Invoke(previously);
-                if (_debugMode)
+
+                if (_verboseLightDetection)
                 {
-                    Debug.Log($"🌑 Object left light: {previously}");
+                    Debug.Log($"🌑 OBJECT LEFT LIGHT: {previously} - calling OnLeftLight()");
                 }
             }
         }
     }
 
     #endregion
+
 
     #region Visual Effects
 
@@ -844,30 +897,67 @@ public class EnhancedLanternController : MonoBehaviour
 
     #region Debug Methods
 
-    [ContextMenu("Debug: Test Lantern Acquisition")]
-    public void DebugAcquireLantern()
+    [ContextMenu("Debug: Test Light Detection")]
+    public void DebugTestLightDetection()
     {
-        AcquireLantern();
+        if (!IsLanternActive)
+        {
+            Debug.Log("❌ Cannot test light detection - lantern not active");
+            return;
+        }
+
+        Debug.Log("=== LIGHT DETECTION TEST ===");
+        Debug.Log($"Floating Lantern: {(_floatingLantern != null ? "✓" : "❌")}");
+
+        if (_floatingLantern != null)
+        {
+            Vector3 beamOrigin = _floatingLantern.GetBeamOrigin();
+            Vector2 beamDirection = GetBeamDirection();
+            Debug.Log($"Beam Origin: {beamOrigin}");
+            Debug.Log($"Beam Direction: {beamDirection}");
+
+            // Test direct raycast to mouse position
+            Vector3 mouseWorldPos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            mouseWorldPos.z = 0f;
+            Vector2 toMouse = ((Vector2)mouseWorldPos - (Vector2)beamOrigin).normalized;
+
+            RaycastHit2D testHit = Physics2D.Raycast(beamOrigin, toMouse, 15f, _lightInteractionLayers);
+            if (testHit.collider != null)
+            {
+                Debug.Log($"✓ Test ray hit: {testHit.collider.name} at {testHit.distance:F2}");
+                Debug.Log($"  Has ILightInteractable: {(testHit.collider.GetComponent<ILightInteractable>() != null ? "✓" : "❌")}");
+            }
+            else
+            {
+                Debug.Log("❌ Test ray hit nothing");
+            }
+        }
     }
 
-    [ContextMenu("Debug: Test Lantern Activation")]
-    public void DebugActivateLantern()
+    [ContextMenu("Debug: Show Layer Info")]
+    public void DebugShowLayerInfo()
     {
-        ActivateLantern();
-    }
+        Debug.Log("=== LAYER CONFIGURATION ===");
+        Debug.Log($"Light Interaction Layers: {_lightInteractionLayers.value}");
 
-    [ContextMenu("Debug: Show Current State")]
-    public void DebugShowCurrentState()
-    {
-        Debug.Log($"=== LANTERN CONTROLLER STATE ===");
-        Debug.Log($"Has Lantern: {HasLantern}");
-        Debug.Log($"Is Active: {IsLanternActive}");
-        Debug.Log($"Current Light Type: {_currentLightType}");
-        Debug.Log($"Discovered Types: {string.Join(", ", _discoveredLightTypes)}");
-        Debug.Log($"Mana: {_currentMana:F1}/{_maxMana:F1} ({ManaPercentage:P})");
-        Debug.Log($"Inner Light: {_innerLightStrength:F2}/{_maxInnerLightStrength:F2}");
-        Debug.Log($"FloatingLantern: {(_floatingLantern != null ? "Connected" : "Missing")}");
-        Debug.Log($"Inner 2D Light Enabled: {_playerInnerLight2D?.enabled ?? false}");
+        // Show which layers are included
+        for (int i = 0; i < 32; i++)
+        {
+            if ((_lightInteractionLayers.value & (1 << i)) != 0)
+            {
+                Debug.Log($"  Layer {i}: {LayerMask.LayerToName(i)} ✓");
+            }
+        }
+
+        // Check platform layers
+        var platforms = FindObjectsOfType<EnhancedRevealablePlatform>();
+        Debug.Log($"\nFound {platforms.Length} platforms:");
+        foreach (var platform in platforms)
+        {
+            int platformLayer = platform.gameObject.layer;
+            bool isIncluded = (_lightInteractionLayers.value & (1 << platformLayer)) != 0;
+            Debug.Log($"  {platform.name}: Layer {platformLayer} ({LayerMask.LayerToName(platformLayer)}) {(isIncluded ? "✓ Included" : "❌ Not Included")}");
+        }
     }
 
     #endregion

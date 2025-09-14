@@ -4,14 +4,15 @@ using System.Collections;
 using UnityEngine.Rendering.Universal;
 
 /// <summary>
-/// Streamlined Lantern Controller that works with DualProgressionSystem
-/// Focused on core lantern mechanics without competing skill tree
+/// Updated EnhancedLanternController that works with FloatingLantern instead of player-attached lights
 /// </summary>
 public class EnhancedLanternController : MonoBehaviour
 {
-    [Header("2D Lighting")]
-    [SerializeField] private Light2D _lanternLight2D;
-    [SerializeField] private Light2D _playerInnerLight2D;
+    [Header("Player Inner Light Properties - RUNTIME ADJUSTABLE")]
+    [SerializeField] private float _innerLightIntensity = 1.2f;
+    [SerializeField] private float _innerLightInnerRadius = 0.2f;
+    [SerializeField] private float _innerLightOuterRadius = 2f;
+    [SerializeField] private Color _innerLightColor = new Color(1f, 0.8f, 0.6f);
 
     [Header("Light Type System")]
     [SerializeField] private LightType _currentLightType = LightType.None;
@@ -28,10 +29,7 @@ public class EnhancedLanternController : MonoBehaviour
     [SerializeField] private float _manaRegenRate = 10f;
     [SerializeField] private bool _allowManaRegen = true;
 
-    [Header("Lantern Beam")]
-    [SerializeField] private Transform _lanternBeamOrigin;
-    [SerializeField] private LineRenderer _beamRenderer;
-    [SerializeField] private Light _spotLight;
+    [Header("Beam Detection")]
     [SerializeField] private LayerMask _lightInteractionLayers = -1;
 
     [Header("Character Glow")]
@@ -47,12 +45,19 @@ public class EnhancedLanternController : MonoBehaviour
     [SerializeField] private AudioSource _audioSource;
     [SerializeField] private ParticleSystem _lightEmissionEffect;
 
+    [Header("Debug")]
+    [SerializeField] private bool _debugMode = true;
+
+    // References to external systems
+    private Light2D _playerInnerLight2D;
+    private FloatingLantern _floatingLantern;
+
     // Public Properties
     public bool IsLanternActive { get; private set; }
     public bool HasLantern { get; private set; }
     public LightType CurrentLightType => _currentLightType;
     public float ManaPercentage => _maxMana > 0 ? _currentMana / _maxMana : 0f;
-    public float MaxMana => _maxMana; // CRITICAL: Public access for DualProgressionSystem
+    public float MaxMana => _maxMana;
     public float InnerLightPercentage => _maxInnerLightStrength > 0 ? _innerLightStrength / _maxInnerLightStrength : 0f;
 
     // Events
@@ -116,52 +121,48 @@ public class EnhancedLanternController : MonoBehaviour
     private void Awake()
     {
         InitializeLanternSystem();
-        SetupLighting();
+        SetupPlayerInnerLight();
     }
 
     private void Update()
     {
         HandleInput();
         UpdateManaSystem();
-        if (IsLanternActive)
+        UpdateLightProperties();
+
+        if (IsLanternActive && _floatingLantern != null)
         {
             UpdateLanternBeam();
         }
+
         UpdateInnerLightEffects();
     }
 
     #region Initialization
 
-    private void SetupLighting()
+    private void SetupPlayerInnerLight()
     {
-        // Setup lantern light
-        if (_lanternLight2D == null)
-        {
-            GameObject lightObj = new GameObject("LanternLight2D");
-            lightObj.transform.SetParent(transform);
-            _lanternLight2D = lightObj.AddComponent<Light2D>();
-        }
-
-        _lanternLight2D.lightType = Light2D.LightType.Point;
-        _lanternLight2D.intensity = 1.5f;
-        _lanternLight2D.pointLightInnerRadius = 0.5f;
-        _lanternLight2D.pointLightOuterRadius = 8f;
-        _lanternLight2D.color = Color.yellow;
-        _lanternLight2D.enabled = false; // Start disabled
-
-        // Setup player inner light
+        // Setup ONLY the player's inner light (not the lantern light)
         if (_playerInnerLight2D == null)
         {
             GameObject innerLightObj = new GameObject("PlayerInnerLight2D");
             innerLightObj.transform.SetParent(transform);
+            innerLightObj.transform.localPosition = Vector3.zero;
             _playerInnerLight2D = innerLightObj.AddComponent<Light2D>();
         }
 
         _playerInnerLight2D.lightType = Light2D.LightType.Point;
-        _playerInnerLight2D.intensity = 1.2f;
-        _playerInnerLight2D.pointLightInnerRadius = 0.2f;
-        _playerInnerLight2D.pointLightOuterRadius = 2f;
-        _playerInnerLight2D.color = new Color(1f, 0.8f, 0.6f); // Warm glow
+        _playerInnerLight2D.intensity = _innerLightIntensity;
+        _playerInnerLight2D.pointLightInnerRadius = _innerLightInnerRadius;
+        _playerInnerLight2D.pointLightOuterRadius = _innerLightOuterRadius;
+        _playerInnerLight2D.color = _innerLightColor;
+        _playerInnerLight2D.enabled = true; // Always on for inner light
+
+        if (_debugMode)
+        {
+            Debug.Log("✓ Player inner light setup complete");
+            Debug.Log($"  Inner Light: {_innerLightIntensity} intensity, {_innerLightOuterRadius} radius");
+        }
     }
 
     private void InitializeLanternSystem()
@@ -174,9 +175,6 @@ public class EnhancedLanternController : MonoBehaviour
         if (_audioSource == null)
             _audioSource = GetComponent<AudioSource>();
 
-        // Setup beam components
-        SetupBeamVisuals();
-
         // Setup default light configurations if empty
         if (_lightTypeConfigurations == null || _lightTypeConfigurations.Length == 0)
         {
@@ -186,7 +184,7 @@ public class EnhancedLanternController : MonoBehaviour
         // Update effects
         UpdateInnerLightEffects();
 
-        Debug.Log("✓ Lantern system initialized");
+        Debug.Log("✓ Lantern system initialized - waiting for acquisition");
     }
 
     private void CreateDefaultLightConfigurations()
@@ -222,31 +220,20 @@ public class EnhancedLanternController : MonoBehaviour
         };
     }
 
-    private void SetupBeamVisuals()
+    #endregion
+
+    #region Runtime Light Property Updates
+
+    private void UpdateLightProperties()
     {
-        // Setup beam renderer
-        if (_beamRenderer == null)
+        // Update inner light properties in real-time
+        if (_playerInnerLight2D != null)
         {
-            GameObject beamObj = new GameObject("LanternBeam");
-            beamObj.transform.SetParent(transform);
-            _beamRenderer = beamObj.AddComponent<LineRenderer>();
+            _playerInnerLight2D.intensity = _innerLightIntensity;
+            _playerInnerLight2D.pointLightInnerRadius = _innerLightInnerRadius;
+            _playerInnerLight2D.pointLightOuterRadius = _innerLightOuterRadius;
+            _playerInnerLight2D.color = _innerLightColor;
         }
-
-        _beamRenderer.material = new Material(Shader.Find("Sprites/Default"));
-        _beamRenderer.startWidth = 0.1f;
-        _beamRenderer.endWidth = 1f;
-        _beamRenderer.positionCount = 2;
-
-        // Setup spotlight
-        if (_spotLight == null)
-        {
-            _spotLight = GetComponent<Light>();
-            if (_spotLight == null)
-                _spotLight = gameObject.AddComponent<Light>();
-        }
-
-        _spotLight.type = UnityEngine.LightType.Spot;
-        EnableBeamVisuals(false);
     }
 
     #endregion
@@ -255,18 +242,30 @@ public class EnhancedLanternController : MonoBehaviour
 
     private void HandleInput()
     {
-        if (!HasLantern) return;
+        if (!HasLantern)
+        {
+            if (_debugMode && InputManager.LanternTogglePressed)
+            {
+                Debug.Log("❌ Lantern toggle pressed but player doesn't have lantern yet!");
+            }
+            return;
+        }
 
         // Lantern toggle
         if (InputManager.LanternTogglePressed)
         {
+            if (_debugMode)
+            {
+                Debug.Log($"🔦 Lantern toggle - Currently Active: {IsLanternActive}");
+            }
+
             if (IsLanternActive)
                 DeactivateLantern();
             else
                 ActivateLantern();
         }
 
-        // Cycle light types (mouse wheel or controller)
+        // Cycle light types (mouse wheel)
         float scrollInput = Input.GetAxis("Mouse ScrollWheel");
         if (scrollInput != 0f && _discoveredLightTypes.Count > 1)
         {
@@ -296,7 +295,23 @@ public class EnhancedLanternController : MonoBehaviour
     /// </summary>
     public void AcquireLantern()
     {
-        if (HasLantern) return;
+        if (HasLantern)
+        {
+            if (_debugMode)
+                Debug.LogWarning("⚠️ Player already has lantern!");
+            return;
+        }
+
+        // Find the floating lantern that was created for this player
+        if (_floatingLantern == null)
+        {
+            _floatingLantern = FindObjectOfType<FloatingLantern>();
+
+            if (_debugMode)
+            {
+                Debug.Log($"FloatingLantern search result: {(_floatingLantern != null ? "Found" : "Not Found")}");
+            }
+        }
 
         HasLantern = true;
 
@@ -308,7 +323,14 @@ public class EnhancedLanternController : MonoBehaviour
 
         OnLanternAcquired?.Invoke();
 
-        Debug.Log("✨ Ancient Lantern acquired! Your inner light awakens...");
+        if (_debugMode)
+        {
+            Debug.Log("✨ LANTERN ACQUIRED SUCCESSFULLY!");
+            Debug.Log($"  Has Lantern: {HasLantern}");
+            Debug.Log($"  Current Light Type: {_currentLightType}");
+            Debug.Log($"  Discovered Light Types: {_discoveredLightTypes.Count}");
+            Debug.Log($"  FloatingLantern Reference: {(_floatingLantern != null ? "Connected" : "Missing")}");
+        }
     }
 
     /// <summary>
@@ -336,7 +358,10 @@ public class EnhancedLanternController : MonoBehaviour
 
         OnLightTypeDiscovered?.Invoke(newLightType);
 
-        Debug.Log($"🌟 New light discovered: {lightData.displayName}!");
+        if (_debugMode)
+        {
+            Debug.Log($"🌟 New light discovered: {lightData.displayName}!");
+        }
     }
 
     #endregion
@@ -348,11 +373,13 @@ public class EnhancedLanternController : MonoBehaviour
         if (!_discoveredLightTypes.Contains(lightType)) return;
 
         _currentLightType = lightType;
-        UpdateBeamProperties();
         OnLightTypeChanged?.Invoke(lightType);
 
         var lightData = GetLightTypeData(lightType);
-        Debug.Log($"Switched to {lightData?.displayName ?? lightType.ToString()}");
+        if (_debugMode)
+        {
+            Debug.Log($"Switched to {lightData?.displayName ?? lightType.ToString()}");
+        }
     }
 
     private void CycleLightType(bool forward = true)
@@ -396,7 +423,10 @@ public class EnhancedLanternController : MonoBehaviour
         _maxMana += manaIncrease;
         _currentMana = _maxMana; // Restore to full
 
-        Debug.Log($"Inner Light increased: {oldStrength:F2} → {_innerLightStrength:F2}");
+        if (_debugMode)
+        {
+            Debug.Log($"Inner Light increased: {oldStrength:F2} → {_innerLightStrength:F2}");
+        }
     }
 
     #endregion
@@ -405,41 +435,84 @@ public class EnhancedLanternController : MonoBehaviour
 
     public void ActivateLantern()
     {
-        if (!HasLantern || IsLanternActive || _currentLightType == LightType.None) return;
+        if (!HasLantern)
+        {
+            if (_debugMode)
+                Debug.Log("❌ Cannot activate lantern - not acquired yet!");
+            return;
+        }
+
+        if (IsLanternActive)
+        {
+            if (_debugMode)
+                Debug.Log("⚠️ Lantern already active!");
+            return;
+        }
+
+        if (_currentLightType == LightType.None)
+        {
+            if (_debugMode)
+                Debug.Log("❌ Cannot activate lantern - no light type selected!");
+            return;
+        }
 
         var lightData = GetLightTypeData(_currentLightType);
-        if (lightData == null) return;
+        if (lightData == null)
+        {
+            if (_debugMode)
+                Debug.Log("❌ Cannot activate lantern - invalid light type data!");
+            return;
+        }
 
         // Check mana cost
         float activationCost = lightData.activationCost;
         if (_currentMana < activationCost)
         {
-            Debug.Log("Not enough mana to activate lantern!");
+            Debug.Log("❌ Not enough mana to activate lantern!");
             return;
         }
-        if (_lanternLight2D != null)
+
+        // Activate floating lantern
+        if (_floatingLantern != null)
         {
-            _lanternLight2D.enabled = true;
+            _floatingLantern.SetLanternActive(true);
+        }
+        else
+        {
+            Debug.LogWarning("⚠️ No FloatingLantern found!");
         }
 
         // Consume mana
         ConsumeMana(activationCost);
 
         IsLanternActive = true;
-        UpdateBeamProperties();
-        EnableBeamVisuals(true);
         PlayLightActivationEffect(lightData);
 
-        Debug.Log($"Lantern activated: {lightData.displayName}");
+        if (_debugMode)
+        {
+            Debug.Log($"✅ LANTERN ACTIVATED: {lightData.displayName}");
+            Debug.Log($"  FloatingLantern Active: {_floatingLantern != null}");
+            Debug.Log($"  Mana Remaining: {_currentMana:F1}/{_maxMana:F1}");
+        }
     }
 
     public void DeactivateLantern()
     {
-        if (!IsLanternActive) return;
+        if (!IsLanternActive)
+        {
+            if (_debugMode)
+                Debug.Log("⚠️ Lantern already inactive!");
+            return;
+        }
 
         IsLanternActive = false;
         ClearIlluminatedObjects();
-        EnableBeamVisuals(false);
+
+        // Deactivate floating lantern
+        if (_floatingLantern != null)
+        {
+            _floatingLantern.SetLanternActive(false);
+        }
 
         var lightData = GetLightTypeData(_currentLightType);
         if (lightData?.deactivationSound != null && _audioSource != null)
@@ -447,12 +520,10 @@ public class EnhancedLanternController : MonoBehaviour
             _audioSource.PlayOneShot(lightData.deactivationSound);
         }
 
-        if (_lanternLight2D != null)
+        if (_debugMode)
         {
-            _lanternLight2D.enabled = false;
+            Debug.Log("🔦 Lantern deactivated");
         }
-
-        Debug.Log("Lantern deactivated");
     }
 
     #endregion
@@ -478,7 +549,7 @@ public class EnhancedLanternController : MonoBehaviour
                 else
                 {
                     DeactivateLantern();
-                    Debug.Log("Lantern deactivated - out of mana!");
+                    Debug.Log("🔦 Lantern deactivated - out of mana!");
                 }
             }
         }
@@ -491,9 +562,6 @@ public class EnhancedLanternController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Public method for DualProgressionSystem to consume mana
-    /// </summary>
     public void ConsumeMana(float amount)
     {
         _currentMana = Mathf.Max(_currentMana - amount, 0f);
@@ -512,9 +580,17 @@ public class EnhancedLanternController : MonoBehaviour
 
     private void UpdateLanternBeam()
     {
+        if (_floatingLantern == null) return;
+
         Vector2 beamDirection = GetBeamDirection();
-        PerformLightDetection(beamDirection);
-        UpdateBeamVisuals(beamDirection);
+        var lightData = GetLightTypeData(_currentLightType);
+        if (lightData == null) return;
+
+        // Update floating lantern beam visuals
+        _floatingLantern.UpdateBeam(beamDirection, lightData.baseRange, lightData.lightColor);
+
+        // Perform light detection
+        PerformLightDetection(beamDirection, lightData);
     }
 
     private Vector2 GetBeamDirection()
@@ -522,9 +598,12 @@ public class EnhancedLanternController : MonoBehaviour
         // Mouse aiming
         if (_useMouseAiming && Input.mousePosition != Vector3.zero)
         {
-            Vector3 mouseWorldPos = Camera.main.ScreenToWorldPoint(InputManager.MousePosition);
+            Vector3 mouseWorldPos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
             mouseWorldPos.z = 0f;
-            Vector2 direction = ((Vector2)mouseWorldPos - (Vector2)transform.position);
+
+            Vector3 beamOrigin = _floatingLantern != null ? _floatingLantern.GetBeamOrigin() : transform.position;
+            Vector2 direction = ((Vector2)mouseWorldPos - (Vector2)beamOrigin);
+
             if (direction.magnitude > 0.1f)
                 return direction.normalized;
         }
@@ -535,21 +614,18 @@ public class EnhancedLanternController : MonoBehaviour
             return InputManager.RightStickInput.normalized;
         }
 
-        // Default to character facing direction
-        return transform.right;
+        // Default to right
+        return Vector2.right;
     }
 
-    private void PerformLightDetection(Vector2 beamDirection)
+    private void PerformLightDetection(Vector2 beamDirection, LightTypeData lightData)
     {
-        var lightData = GetLightTypeData(_currentLightType);
-        if (lightData == null) return;
-
         // Clear previous illumination
         _previouslyIlluminated.Clear();
         _previouslyIlluminated.AddRange(_currentlyIlluminated);
         _currentlyIlluminated.Clear();
 
-        // Get beam properties
+        Vector3 beamOrigin = _floatingLantern.GetBeamOrigin();
         float range = lightData.baseRange;
         float width = lightData.baseWidth;
 
@@ -563,7 +639,12 @@ public class EnhancedLanternController : MonoBehaviour
             float currentAngle = Mathf.Lerp(-halfAngle, halfAngle, t);
             Vector2 rayDirection = RotateVector2(beamDirection, currentAngle);
 
-            RaycastHit2D hit = Physics2D.Raycast(transform.position, rayDirection, range, _lightInteractionLayers);
+            RaycastHit2D hit = Physics2D.Raycast(beamOrigin, rayDirection, range, _lightInteractionLayers);
+
+            if (_debugMode && hit.collider != null)
+            {
+                Debug.DrawRay(beamOrigin, rayDirection * hit.distance, Color.yellow, 0.1f);
+            }
 
             if (hit.collider != null)
             {
@@ -571,6 +652,10 @@ public class EnhancedLanternController : MonoBehaviour
                 if (lightInteractable != null && !_currentlyIlluminated.Contains(lightInteractable))
                 {
                     _currentlyIlluminated.Add(lightInteractable);
+                    if (_debugMode)
+                    {
+                        Debug.Log($"💡 Light hitting: {hit.collider.name}");
+                    }
                 }
             }
         }
@@ -587,6 +672,10 @@ public class EnhancedLanternController : MonoBehaviour
             {
                 illuminated.OnIlluminated(this);
                 OnObjectIlluminated?.Invoke(illuminated);
+                if (_debugMode)
+                {
+                    Debug.Log($"✨ Object illuminated: {illuminated}");
+                }
             }
         }
 
@@ -597,6 +686,10 @@ public class EnhancedLanternController : MonoBehaviour
             {
                 previously.OnLeftLight(this);
                 OnObjectLeftLight?.Invoke(previously);
+                if (_debugMode)
+                {
+                    Debug.Log($"🌑 Object left light: {previously}");
+                }
             }
         }
     }
@@ -604,25 +697,6 @@ public class EnhancedLanternController : MonoBehaviour
     #endregion
 
     #region Visual Effects
-
-    private void UpdateBeamProperties()
-    {
-        var lightData = GetLightTypeData(_currentLightType);
-        if (lightData == null) return;
-
-        if (_spotLight != null)
-        {
-            _spotLight.color = lightData.lightColor;
-            _spotLight.intensity = lightData.baseIntensity;
-            _spotLight.range = lightData.baseRange;
-            _spotLight.spotAngle = lightData.baseWidth;
-        }
-
-        if (_beamRenderer != null)
-        {
-            _beamRenderer.material.color = lightData.lightColor;
-        }
-    }
 
     private void UpdateInnerLightEffects()
     {
@@ -650,49 +724,6 @@ public class EnhancedLanternController : MonoBehaviour
             glowColor.a = (_innerLightStrength / _maxInnerLightStrength) * 0.3f;
             _characterGlow.color = glowColor;
         }
-
-        if (_playerInnerLight2D != null)
-        {
-            float targetIntensity = 0.6f + (_innerLightStrength / _maxInnerLightStrength) * 0.8f;
-            _playerInnerLight2D.intensity = targetIntensity;
-
-            Color targetColor = Color.Lerp(
-                new Color(0.8f, 0.6f, 0.4f),
-                Color.white,
-                _innerLightStrength / _maxInnerLightStrength
-            );
-            _playerInnerLight2D.color = targetColor;
-        }
-}
-
-    private void UpdateBeamVisuals(Vector2 direction)
-    {
-        if (_beamRenderer == null) return;
-
-        var lightData = GetLightTypeData(_currentLightType);
-        if (lightData == null) return;
-
-        Vector3 startPos = transform.position;
-        Vector3 endPos = startPos + (Vector3)(direction * lightData.baseRange);
-
-        _beamRenderer.SetPosition(0, startPos);
-        _beamRenderer.SetPosition(1, endPos);
-
-        // Update spotlight direction
-        if (_spotLight != null)
-        {
-            float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
-            _spotLight.transform.rotation = Quaternion.AngleAxis(angle - 90f, Vector3.forward);
-        }
-    }
-
-    private void EnableBeamVisuals(bool enabled)
-    {
-        if (_beamRenderer != null)
-            _beamRenderer.enabled = enabled;
-
-        if (_spotLight != null)
-            _spotLight.enabled = enabled;
     }
 
     private void PlayLightActivationEffect(LightTypeData lightData)
@@ -807,6 +838,36 @@ public class EnhancedLanternController : MonoBehaviour
     public List<LightType> GetDiscoveredLightTypes()
     {
         return new List<LightType>(_discoveredLightTypes);
+    }
+
+    #endregion
+
+    #region Debug Methods
+
+    [ContextMenu("Debug: Test Lantern Acquisition")]
+    public void DebugAcquireLantern()
+    {
+        AcquireLantern();
+    }
+
+    [ContextMenu("Debug: Test Lantern Activation")]
+    public void DebugActivateLantern()
+    {
+        ActivateLantern();
+    }
+
+    [ContextMenu("Debug: Show Current State")]
+    public void DebugShowCurrentState()
+    {
+        Debug.Log($"=== LANTERN CONTROLLER STATE ===");
+        Debug.Log($"Has Lantern: {HasLantern}");
+        Debug.Log($"Is Active: {IsLanternActive}");
+        Debug.Log($"Current Light Type: {_currentLightType}");
+        Debug.Log($"Discovered Types: {string.Join(", ", _discoveredLightTypes)}");
+        Debug.Log($"Mana: {_currentMana:F1}/{_maxMana:F1} ({ManaPercentage:P})");
+        Debug.Log($"Inner Light: {_innerLightStrength:F2}/{_maxInnerLightStrength:F2}");
+        Debug.Log($"FloatingLantern: {(_floatingLantern != null ? "Connected" : "Missing")}");
+        Debug.Log($"Inner 2D Light Enabled: {_playerInnerLight2D?.enabled ?? false}");
     }
 
     #endregion

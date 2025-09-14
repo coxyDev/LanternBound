@@ -1,6 +1,5 @@
 ﻿using UnityEngine;
 using System.Collections;
-using System.Collections.Generic; 
 using UnityEngine.Rendering.Universal;
 
 [RequireComponent(typeof(Collider2D))]
@@ -19,6 +18,12 @@ public class CollectibleLantern : MonoBehaviour
     [SerializeField] private float _floatSpeed = 2f;
     [SerializeField] private float _rotationSpeed = 30f;
 
+    [Header("Floating Lantern Integration")]
+    [SerializeField] private GameObject _floatingLanternPrefab;
+
+    [Header("Debug")]
+    [SerializeField] private bool _debugMode = true;
+
     private Vector3 _startPosition;
     private bool _collected = false;
     private AudioSource _audioSource;
@@ -28,6 +33,20 @@ public class CollectibleLantern : MonoBehaviour
         _startPosition = transform.position;
         _audioSource = GetComponent<AudioSource>();
 
+        SetupLighting();
+        SetupCollider();
+        StartCoroutine(PulsingLight());
+
+        if (_debugMode)
+        {
+            Debug.Log($"✓ CollectibleLantern initialized at {transform.position}");
+            Debug.Log($"  Has FloatingLanternPrefab: {_floatingLanternPrefab != null}");
+        }
+    }
+
+    private void SetupLighting()
+    {
+        // Setup 2D Light
         if (_collectibleLight2D == null)
         {
             _collectibleLight2D = gameObject.AddComponent<Light2D>();
@@ -39,7 +58,7 @@ public class CollectibleLantern : MonoBehaviour
         _collectibleLight2D.pointLightOuterRadius = 4f;
         _collectibleLight2D.color = Color.yellow;
 
-        // Setup glow light
+        // Setup 3D glow light for compatibility
         if (_glowLight == null)
             _glowLight = GetComponent<Light>();
 
@@ -50,13 +69,24 @@ public class CollectibleLantern : MonoBehaviour
             _glowLight.range = 5f;
             _glowLight.type = UnityEngine.LightType.Point;
         }
+    }
 
-        // Ensure we have a trigger collider
+    private void SetupCollider()
+    {
         var collider = GetComponent<Collider2D>();
         if (collider != null)
+        {
             collider.isTrigger = true;
 
-        StartCoroutine(PulsingLight());
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Collider setup: {collider.GetType().Name}, IsTrigger: {collider.isTrigger}");
+            }
+        }
+        else
+        {
+            Debug.LogError("❌ No Collider2D found on CollectibleLantern!");
+        }
     }
 
     private void Update()
@@ -98,45 +128,213 @@ public class CollectibleLantern : MonoBehaviour
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (_collected || !other.CompareTag("Player")) return;
+        if (_collected) return;
+
+        if (_debugMode)
+        {
+            Debug.Log($"🔍 TRIGGER ENTERED by: {other.name}");
+            Debug.Log($"  Other Tag: '{other.tag}'");
+            Debug.Log($"  Other GameObject: '{other.gameObject.name}'");
+            Debug.Log($"  Player Tag Check: {other.CompareTag("Player")}");
+        }
+
+        if (!other.CompareTag("Player"))
+        {
+            if (_debugMode)
+            {
+                Debug.Log($"⚠️ Not player - ignoring trigger from {other.name}");
+            }
+            return;
+        }
 
         CollectLantern(other.gameObject);
     }
 
     private void CollectLantern(GameObject player)
     {
+        if (_collected) return;
+
         _collected = true;
 
-        // Enable and initialize lantern controller
+        if (_debugMode)
+        {
+            Debug.Log("🔦 === LANTERN COLLECTION STARTED ===");
+            Debug.Log($"Player GameObject: {player.name}");
+        }
+
+        // STEP 1: Spawn floating lantern
+        GameObject floatingLantern = SpawnFloatingLantern(player);
+
+        // STEP 2: Find and configure lantern controller
         var lanternController = player.GetComponent<EnhancedLanternController>();
         if (lanternController != null)
         {
-            lanternController.enabled = true;
-            lanternController.AcquireLantern();
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Found EnhancedLanternController");
+                Debug.Log($"  Controller Enabled: {lanternController.enabled}");
+                Debug.Log($"  Current HasLantern: {lanternController.HasLantern}");
+            }
+
+            // Enable controller if disabled
+            if (!lanternController.enabled)
+            {
+                lanternController.enabled = true;
+                if (_debugMode)
+                {
+                    Debug.Log("✓ Enabled EnhancedLanternController");
+                }
+            }
+
+            // CRITICAL: Wait one frame before acquiring lantern
+            StartCoroutine(DelayedLanternAcquisition(lanternController, player, floatingLantern));
+        }
+        else
+        {
+            Debug.LogError("❌ EnhancedLanternController not found on player!");
         }
 
-        // Initialize progression system with lantern
+        // STEP 3: Play effects immediately
+        PlayPickupEffects();
+
+        // STEP 4: Destroy collectible after delay
+        Destroy(gameObject, 1f);
+    }
+
+    private GameObject SpawnFloatingLantern(GameObject player)
+    {
+        GameObject floatingLantern = null;
+
+        if (_floatingLanternPrefab != null)
+        {
+            // Spawn prefab
+            floatingLantern = Instantiate(_floatingLanternPrefab);
+
+            var floatingLanternComponent = floatingLantern.GetComponent<FloatingLantern>();
+            if (floatingLanternComponent != null)
+            {
+                // Set player reference through reflection or public property
+                var playerField = typeof(FloatingLantern).GetField("_player",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                if (playerField != null)
+                {
+                    playerField.SetValue(floatingLanternComponent, player.transform);
+                }
+            }
+
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Spawned floating lantern from prefab: {floatingLantern.name}");
+            }
+        }
+        else
+        {
+            // Create floating lantern procedurally
+            floatingLantern = new GameObject("FloatingLantern");
+            var floatingLanternComponent = floatingLantern.AddComponent<FloatingLantern>();
+
+            // Set player reference through reflection
+            var playerField = typeof(FloatingLantern).GetField("_player",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (playerField != null)
+            {
+                playerField.SetValue(floatingLanternComponent, player.transform);
+            }
+
+            if (_debugMode)
+            {
+                Debug.Log($"✓ Created floating lantern procedurally: {floatingLantern.name}");
+            }
+        }
+
+        return floatingLantern;
+    }
+
+    private IEnumerator DelayedLanternAcquisition(EnhancedLanternController controller, GameObject player, GameObject floatingLantern)
+    {
+        // Wait one frame to ensure all components are ready
+        yield return null;
+
+        if (_debugMode)
+        {
+            Debug.Log("🔦 === ATTEMPTING LANTERN ACQUISITION ===");
+            Debug.Log($"Controller Valid: {controller != null}");
+            Debug.Log($"Controller Enabled: {controller.enabled}");
+            Debug.Log($"Current HasLantern Before: {controller.HasLantern}");
+        }
+
+        // Acquire lantern
+        try
+        {
+            controller.AcquireLantern();
+
+            if (_debugMode)
+            {
+                Debug.Log($"✓ AcquireLantern() called");
+                Debug.Log($"Current HasLantern After: {controller.HasLantern}");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"❌ Error calling AcquireLantern(): {e.Message}");
+            Debug.LogError($"Stack trace: {e.StackTrace}");
+        }
+
+        // Initialize progression system
         var progression = player.GetComponent<DualProgressionSystem>();
         if (progression != null)
         {
-            progression.Initialize(lanternController);
+            try
+            {
+                progression.Initialize(controller);
+
+                if (_debugMode)
+                {
+                    Debug.Log("✓ DualProgressionSystem initialized");
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"❌ Error initializing DualProgressionSystem: {e.Message}");
+            }
+        }
+        else
+        {
+            Debug.LogWarning("⚠️ DualProgressionSystem not found on player!");
         }
 
-        // Play effects
+        // Final status check
+        if (_debugMode)
+        {
+            Debug.Log("🔦 === LANTERN ACQUISITION COMPLETE ===");
+            Debug.Log($"Final HasLantern: {controller.HasLantern}");
+            Debug.Log($"Final Light Type: {controller.CurrentLightType}");
+            Debug.Log($"Floating Lantern Created: {floatingLantern != null}");
+            Debug.Log("✨ ANCIENT LANTERN ACQUIRED! Press F to activate.");
+        }
+    }
+
+    private void PlayPickupEffects()
+    {
+        // Play sound
         if (_pickupSound != null && _audioSource != null)
         {
             _audioSource.PlayOneShot(_pickupSound);
+            if (_debugMode)
+            {
+                Debug.Log("🔊 Pickup sound played");
+            }
         }
 
+        // Play particle effect
         if (_pickupEffect != null)
         {
             _pickupEffect.Play();
+            if (_debugMode)
+            {
+                Debug.Log("✨ Pickup particles played");
+            }
         }
-
-        Debug.Log("✨ Ancient Lantern Acquired! Press F to activate.");
-
-        // Destroy after a short delay
-        Destroy(gameObject, 0.5f);
     }
 
     private void OnDrawGizmosSelected()
@@ -149,5 +347,20 @@ public class CollectibleLantern : MonoBehaviour
         Vector3 topPos = _startPosition + Vector3.up * _floatHeight;
         Vector3 bottomPos = _startPosition - Vector3.up * _floatHeight;
         Gizmos.DrawLine(topPos, bottomPos);
+
+        // Show trigger area
+        var collider = GetComponent<Collider2D>();
+        if (collider != null)
+        {
+            Gizmos.color = Color.green;
+            if (collider is BoxCollider2D box)
+            {
+                Gizmos.DrawWireCube(transform.position, box.size);
+            }
+            else if (collider is CircleCollider2D circle)
+            {
+                Gizmos.DrawWireSphere(transform.position, circle.radius);
+            }
+        }
     }
 }

@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -28,23 +28,30 @@ public class InputManager : MonoBehaviour
     private InputAction _mousePositionAction;
     private InputAction _rightStickAction;
 
+    // Fallback for F key if Input Actions not configured
+    private bool _useFallbackInput = false;
+
     private void Awake()
     {
         PlayerInput = GetComponent<PlayerInput>();
         animator = GetComponent<Animator>();
 
+        // Core movement actions (these should exist)
         _moveAction = PlayerInput.actions["Move"];
         _jumpAction = PlayerInput.actions["Jump"];
         _runAction = PlayerInput.actions["Run"];
         _dashAction = PlayerInput.actions["Dash"];
 
+        // Lantern action with fallback
         try
         {
             _lanternToggleAction = PlayerInput.actions["LanternToggle"];
+            Debug.Log("✓ LanternToggle action found in Input Actions");
         }
         catch
         {
-            Debug.LogWarning("LanternToggle action not found in Input Actions. Add it if you want to toggle the lantern.");
+            Debug.LogWarning("⚠️ LanternToggle action not found. Using F key fallback.");
+            _useFallbackInput = true;
         }
 
         try
@@ -64,6 +71,8 @@ public class InputManager : MonoBehaviour
         {
             Debug.LogWarning("RightStick action not found. Controller lantern aiming won't work.");
         }
+
+        Debug.Log("✓ InputManager initialized");
     }
 
     private void Update()
@@ -77,7 +86,15 @@ public class InputManager : MonoBehaviour
         RunIsHeld = _runAction.IsPressed();
         DashWasPressed = _dashAction.WasPressedThisFrame();
 
-        LanternTogglePressed = _lanternToggleAction?.WasPressedThisFrame() ?? false;
+        // Lantern toggle with fallback
+        if (_useFallbackInput)
+        {
+            LanternTogglePressed = Input.GetKeyDown(KeyCode.F);
+        }
+        else
+        {
+            LanternTogglePressed = _lanternToggleAction?.WasPressedThisFrame() ?? Input.GetKeyDown(KeyCode.F);
+        }
 
         // Mouse position for lantern aiming
         if (_mousePositionAction != null)
@@ -91,5 +108,19 @@ public class InputManager : MonoBehaviour
 
         // Right stick for controller lantern aiming
         RightStickInput = _rightStickAction?.ReadValue<Vector2>() ?? Vector2.zero;
+
+        // Debug lantern input
+        if (LanternTogglePressed)
+        {
+            Debug.Log("🔦 Lantern toggle input detected!");
+        }
+    }
+
+    [ContextMenu("Test Lantern Input")]
+    public void TestLanternInput()
+    {
+        Debug.Log($"Lantern Toggle Action: {(_lanternToggleAction != null ? "Found" : "Missing")}");
+        Debug.Log($"Using Fallback Input: {_useFallbackInput}");
+        Debug.Log("Press F key to test lantern toggle");
     }
 }

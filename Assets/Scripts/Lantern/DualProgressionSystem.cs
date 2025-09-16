@@ -305,32 +305,24 @@ public class DualProgressionSystem : MonoBehaviour
 
     private void PerformSolarFlare(LightAbility ability)
     {
-        // Create blinding AOE effect
-        Vector2 playerPos = _lanternController.transform.position;
-        float radius = ability.Range * (1f + GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityRange));
+        Vector3 center = transform.position;
+        float radius = 8f;
 
-        // Find all enemies in radius and apply stun
-        Collider2D[] enemies = Physics2D.OverlapCircleAll(playerPos, radius);
-        int enemiesAffected = 0;
+        // Find all puzzle nodes in range
+        Collider2D[] nodes = Physics2D.OverlapCircleAll(center, radius);
+        int activatedCount = 0;
 
-        foreach (var enemy in enemies)
+        foreach (var node in nodes)
         {
-            var lightSensitive = enemy.GetComponent<ILightInteractable>();
-            if (lightSensitive != null)
+            var puzzleNode = node.GetComponent<LightPuzzleNode>();
+            if (puzzleNode != null)
             {
-                // Force illumination for stun effect
-                lightSensitive.OnIlluminated(_lanternController);
-                enemiesAffected++;
-                Debug.Log($"Solar Flare stunned: {enemy.name}");
+                puzzleNode.ForceActivate();
+                activatedCount++;
             }
         }
 
-        if (enemiesAffected > 0)
-        {
-            AddLightEssence(enemiesAffected * 2); // Bonus for multiple enemies
-        }
-
-        Debug.Log($"Solar Flare executed: {enemiesAffected} enemies affected");
+        Debug.Log($"☀️ Solar Flare activated {activatedCount} nodes!");
     }
 
     private void PerformLightDash(LightAbility ability)

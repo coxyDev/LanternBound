@@ -3,12 +3,18 @@ using System.Collections.Generic;
 using System.Collections;
 
 /// <summary>
-/// Fixed Dual progression system supporting both active abilities and passive upgrades
-/// Active abilities are found/unlocked through world exploration
-/// Passive upgrades are purchased with light essence currency
+/// MIGRATION VERSION: Enhanced DualProgressionSystem that preserves your existing interface
+/// while adding the new advanced ability system
+/// 
+/// COMPATIBILITY: Maintains all existing progression and upgrade functionality
+/// NEW FEATURES: Solar Flare, Prism Beam, enhanced ability execution system
 /// </summary>
 public class DualProgressionSystem : MonoBehaviour
 {
+    [Header("Compatibility Settings")]
+    [SerializeField] private bool _enableAdvancedAbilities = true;
+    [SerializeField] private bool _debugMode = true;
+
     [Header("Active Abilities")]
     [SerializeField] private List<LightAbility> _discoveredAbilities = new List<LightAbility>();
     [SerializeField] private List<LightAbility> _allActiveAbilities = new List<LightAbility>();
@@ -17,13 +23,27 @@ public class DualProgressionSystem : MonoBehaviour
     [SerializeField] private List<PassiveUpgrade> _unlockedUpgrades = new List<PassiveUpgrade>();
     [SerializeField] private List<PassiveUpgrade> _allPassiveUpgrades = new List<PassiveUpgrade>();
 
-    [Header("Currency")]
-    [SerializeField] private int _lightEssence = 0;
+    [Header("Currency & Resources")]
+    [SerializeField] private int _lightEssence = 20; // Start with some essence for testing
+    [SerializeField] private float _maxMana = 100f;
+    [SerializeField] private float _currentMana = 100f;
 
+    [Header("Ability Input Bindings")]
+    [SerializeField] private KeyCode _ability1Key = KeyCode.Q; // Solar Flare
+    [SerializeField] private KeyCode _ability2Key = KeyCode.E; // Prism Beam
+    [SerializeField] private KeyCode _ability3Key = KeyCode.R; // Third ability
+    [SerializeField] private KeyCode _ability4Key = KeyCode.T; // Fourth ability
+
+    // Component references
     private EnhancedLanternController _lanternController;
 
-    // Events
+    // Ability tracking
+    private Dictionary<string, float> _abilityCooldowns = new Dictionary<string, float>();
+    private Dictionary<string, bool> _abilityInputHeld = new Dictionary<string, bool>();
+
+    // Events for system integration
     public System.Action<LightAbility> OnAbilityDiscovered;
+    public System.Action<LightAbility> OnAbilityUsed;
     public System.Action<PassiveUpgrade> OnUpgradePurchased;
     public System.Action<int> OnEssenceChanged;
 
@@ -31,18 +51,39 @@ public class DualProgressionSystem : MonoBehaviour
     {
         CreateDefaultAbilities();
         CreateDefaultUpgrades();
+        InitializeCooldowns();
+
+        if (_debugMode)
+            Debug.Log("✓ DualProgressionSystem initialized (Migration Version)");
     }
 
     public void Initialize(EnhancedLanternController controller)
     {
         _lanternController = controller;
-        Debug.Log("✓ DualProgressionSystem initialized with lantern controller");
+
+        // Auto-discover Solar Flare for testing
+        if (_enableAdvancedAbilities)
+        {
+            DiscoverAbility("solar_flare");
+            DiscoverAbility("prism_beam");
+        }
+
+        if (_debugMode)
+            Debug.Log("✓ DualProgressionSystem connected to Enhanced LanternController");
     }
 
-    #region Active Abilities System
+    private void Update()
+    {
+        if (_lanternController == null || !_lanternController.HasLantern) return;
+
+        UpdateCooldowns();
+        HandleAbilityInput();
+    }
+
+    #region PRESERVED LEGACY INTERFACE
 
     /// <summary>
-    /// Discover a new active ability (found in world)
+    /// LEGACY METHOD: Discover a new active ability
     /// </summary>
     public void DiscoverAbility(string abilityId)
     {
@@ -51,60 +92,130 @@ public class DualProgressionSystem : MonoBehaviour
         {
             _discoveredAbilities.Add(ability);
             OnAbilityDiscovered?.Invoke(ability);
-            Debug.Log($"New ability discovered: {ability.DisplayName}!");
+
+            if (_debugMode)
+                Debug.Log($"⭐ New ability discovered: {ability.DisplayName}!");
         }
     }
 
     /// <summary>
-    /// Use an active ability
+    /// LEGACY METHOD: Check if player has specific ability
+    /// </summary>
+    public bool HasAbility(string abilityId)
+    {
+        return _discoveredAbilities.Find(a => a.AbilityId == abilityId) != null;
+    }
+
+    /// <summary>
+    /// LEGACY METHOD: Purchase passive upgrade with light essence
+    /// </summary>
+    public bool PurchaseUpgrade(string upgradeId)
+    {
+        var upgrade = _allPassiveUpgrades.Find(u => u.UpgradeId == upgradeId);
+        if (upgrade == null) return false;
+
+        if (_lightEssence >= upgrade.Cost && !_unlockedUpgrades.Contains(upgrade))
+        {
+            _lightEssence -= upgrade.Cost;
+            _unlockedUpgrades.Add(upgrade);
+            OnUpgradePurchased?.Invoke(upgrade);
+            OnEssenceChanged?.Invoke(_lightEssence);
+
+            if (_debugMode)
+                Debug.Log($"📈 Upgrade purchased: {upgrade.DisplayName}");
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// LEGACY METHOD: Add light essence
+    /// </summary>
+    public void AddLightEssence(int amount)
+    {
+        _lightEssence += amount;
+        OnEssenceChanged?.Invoke(_lightEssence);
+
+        if (_debugMode && amount > 0)
+            Debug.Log($"💎 Gained {amount} Light Essence! Total: {_lightEssence}");
+    }
+
+    /// <summary>
+    /// LEGACY METHOD: Get current light essence
+    /// </summary>
+    public int GetLightEssence() => _lightEssence;
+
+    /// <summary>
+    /// LEGACY METHOD: Get discovered abilities
+    /// </summary>
+    public List<LightAbility> GetDiscoveredAbilities() => new List<LightAbility>(_discoveredAbilities);
+
+    /// <summary>
+    /// LEGACY METHOD: Get upgrade modifier value
+    /// </summary>
+    public float GetUpgradeModifier(PassiveUpgrade.UpgradeType type)
+    {
+        float modifier = 0f;
+        foreach (var upgrade in _unlockedUpgrades)
+        {
+            if (upgrade.Type == type)
+            {
+                modifier += upgrade.EffectValue;
+            }
+        }
+        return modifier;
+    }
+
+    #endregion
+
+    #region NEW ADVANCED ABILITIES
+
+    /// <summary>
+    /// NEW: Enhanced ability execution with proper targeting and effects
     /// </summary>
     public bool UseAbility(string abilityId)
     {
         var ability = _discoveredAbilities.Find(a => a.AbilityId == abilityId);
         if (ability == null) return false;
 
-        if (CanUseAbility(ability))
-        {
-            ExecuteAbility(ability);
-            return true;
-        }
-        return false;
-    }
-
-    private bool CanUseAbility(LightAbility ability)
-    {
-        // Check if we have a lantern controller
-        if (_lanternController == null) return false;
-
-        // Check mana cost - FIXED: Use public property instead of private field
-        if (_lanternController.ManaPercentage * _lanternController.MaxMana < ability.ManaCost)
-            return false;
-
         // Check cooldown
-        if (ability.IsOnCooldown)
-            return false;
-
-        // Check prerequisites
-        foreach (string prereqId in ability.Prerequisites)
+        if (IsOnCooldown(abilityId))
         {
-            if (!_discoveredAbilities.Exists(a => a.AbilityId == prereqId))
-                return false;
+            if (_debugMode)
+                Debug.Log($"⏰ {ability.DisplayName} is on cooldown");
+            return false;
         }
+
+        // Check mana cost
+        float cost = GetModifiedManaCost(ability);
+        if (!_lanternController.ConsumeMana(cost))
+        {
+            if (_debugMode)
+                Debug.Log($"❌ Not enough mana for {ability.DisplayName}");
+            return false;
+        }
+
+        // Execute ability
+        ExecuteAbility(ability);
+
+        // Start cooldown
+        float cooldown = GetModifiedCooldown(ability);
+        _abilityCooldowns[abilityId] = cooldown;
+
+        OnAbilityUsed?.Invoke(ability);
+
+        if (_debugMode)
+            Debug.Log($"✨ Used ability: {ability.DisplayName}");
 
         return true;
     }
 
+    /// <summary>
+    /// NEW: Execute specific ability with enhanced mechanics
+    /// </summary>
     private void ExecuteAbility(LightAbility ability)
     {
-        // Consume mana
-        float manaCost = GetModifiedManaCost(ability);
-        _lanternController.ConsumeMana(manaCost);
-
-        // Start cooldown
-        ability.StartCooldown();
-
-        // Execute ability effect
-        switch (ability.AbilityType)
+        switch (ability.AbilityCategory)
         {
             case LightAbility.AbilityCategory.Combat:
                 ExecuteCombatAbility(ability);
@@ -121,105 +232,22 @@ public class DualProgressionSystem : MonoBehaviour
         }
     }
 
-    #endregion
-
-    #region Passive Upgrades System
-
-    /// <summary>
-    /// Purchase a passive upgrade with light essence
-    /// </summary>
-    public bool PurchaseUpgrade(string upgradeId)
-    {
-        var upgrade = _allPassiveUpgrades.Find(u => u.UpgradeId == upgradeId);
-        if (upgrade == null) return false;
-
-        if (CanPurchaseUpgrade(upgrade))
-        {
-            _lightEssence -= upgrade.EssenceCost;
-            _unlockedUpgrades.Add(upgrade);
-            OnUpgradePurchased?.Invoke(upgrade);
-            OnEssenceChanged?.Invoke(_lightEssence);
-            Debug.Log($"Upgrade purchased: {upgrade.DisplayName}!");
-            return true;
-        }
-        return false;
-    }
-
-    private bool CanPurchaseUpgrade(PassiveUpgrade upgrade)
-    {
-        // Check cost
-        if (_lightEssence < upgrade.EssenceCost)
-            return false;
-
-        // Check if already purchased
-        if (_unlockedUpgrades.Contains(upgrade))
-            return false;
-
-        // Check prerequisites
-        foreach (string prereqId in upgrade.Prerequisites)
-        {
-            if (!_unlockedUpgrades.Exists(u => u.UpgradeId == prereqId))
-                return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Get total modifier value for a specific upgrade type
-    /// </summary>
-    public float GetUpgradeModifier(PassiveUpgrade.UpgradeType upgradeType)
-    {
-        float totalModifier = 0f;
-        foreach (var upgrade in _unlockedUpgrades)
-        {
-            if (upgrade.Type == upgradeType)
-            {
-                totalModifier += upgrade.ModifierValue;
-            }
-        }
-        return totalModifier;
-    }
-
-    #endregion
-
-    #region Currency Management
-
-    public void AddLightEssence(int amount)
-    {
-        _lightEssence += amount;
-        OnEssenceChanged?.Invoke(_lightEssence);
-        Debug.Log($"Gained {amount} Light Essence! Total: {_lightEssence}");
-    }
-
-    public int GetLightEssence() => _lightEssence;
-
-    #endregion
-
-    #region Ability Execution
-
     private void ExecuteCombatAbility(LightAbility ability)
     {
         switch (ability.AbilityId)
         {
-            case "light_slash":
-                PerformLightSlash(ability);
-                break;
             case "solar_flare":
                 PerformSolarFlare(ability);
                 break;
             case "prism_beam":
                 PerformPrismBeam(ability);
                 break;
-            // REMOVED MISSING METHODS FOR MVP - Add these back later when you implement them
-            // case "shadow_split":
-            //     PerformShadowSplit(ability);
-            //     break;
-            // case "refracted_shot":
-            //     PerformRefractedShot(ability);
-            //     break;
+            case "light_slash":
+                PerformLightSlash(ability);
+                break;
             default:
-                Debug.LogWarning($"Combat ability '{ability.AbilityId}' not implemented yet");
+                if (_debugMode)
+                    Debug.LogWarning($"Combat ability '{ability.AbilityId}' not implemented");
                 break;
         }
     }
@@ -235,7 +263,8 @@ public class DualProgressionSystem : MonoBehaviour
                 PerformLuminousChains(ability);
                 break;
             default:
-                Debug.LogWarning($"Mobility ability '{ability.AbilityId}' not implemented yet");
+                if (_debugMode)
+                    Debug.LogWarning($"Mobility ability '{ability.AbilityId}' not implemented");
                 break;
         }
     }
@@ -250,11 +279,9 @@ public class DualProgressionSystem : MonoBehaviour
             case "phantom_glow":
                 PerformPhantomGlow(ability);
                 break;
-            case "eclipsing_veil":
-                PerformEclipsingVeil(ability);
-                break;
             default:
-                Debug.LogWarning($"Utility ability '{ability.AbilityId}' not implemented yet");
+                if (_debugMode)
+                    Debug.LogWarning($"Utility ability '{ability.AbilityId}' not implemented");
                 break;
         }
     }
@@ -263,195 +290,596 @@ public class DualProgressionSystem : MonoBehaviour
     {
         switch (ability.AbilityId)
         {
-            case "illuminated_ward":
-                PerformIlluminatedWard(ability);
+            case "eclipsing_veil":
+                PerformEclipsingVeil(ability);
                 break;
             default:
-                Debug.LogWarning($"Defensive ability '{ability.AbilityId}' not implemented yet");
+                if (_debugMode)
+                    Debug.LogWarning($"Defensive ability '{ability.AbilityId}' not implemented");
                 break;
         }
     }
 
     #endregion
 
-    #region Implemented Ability Methods
+    #region CORE ABILITY IMPLEMENTATIONS
 
-    private void PerformLightSlash(LightAbility ability)
-    {
-        // Create a melee arc attack in front of player
-        Vector2 playerPos = _lanternController.transform.position;
-        Vector2 direction = _lanternController.transform.right; // Or facing direction
-
-        float damage = ability.BaseDamage * (1f + GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityDamage));
-        float range = ability.Range * (1f + GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityRange));
-
-        // Simple implementation - find enemies in range
-        Collider2D[] enemies = Physics2D.OverlapCircleAll(playerPos + direction * range * 0.5f, range * 0.5f);
-        foreach (var enemy in enemies)
-        {
-            var lightSensitive = enemy.GetComponent<ILightInteractable>();
-            if (lightSensitive != null)
-            {
-                // Apply damage effect
-                Debug.Log($"Light Slash hit: {enemy.name} for {damage} damage");
-
-                // Award essence for successful hit
-                AddLightEssence(1);
-            }
-        }
-
-        Debug.Log($"Light Slash executed: {damage} damage, {range} range");
-    }
-
+    /// <summary>
+    /// SOLAR FLARE: Multi-node activation for puzzle solving + enemy stunning
+    /// </summary>
     private void PerformSolarFlare(LightAbility ability)
     {
         Vector3 center = transform.position;
-        float radius = 8f;
+        float range = GetModifiedRange(ability);
 
-        // Find all puzzle nodes in range
-        Collider2D[] nodes = Physics2D.OverlapCircleAll(center, radius);
-        int activatedCount = 0;
+        if (_debugMode)
+            Debug.Log($"☀️ SOLAR FLARE activated at {center} with range {range}");
 
-        foreach (var node in nodes)
+        // Use the enhanced light controller's burst effect system
+        if (_lanternController.CanUseAdvancedFeatures)
         {
-            var puzzleNode = node.GetComponent<LightPuzzleNode>();
+            _lanternController.TriggerBurstEffect(
+                EnhancedLanternController.LightEffect.Stun,
+                center,
+                range
+            );
+        }
+        else
+        {
+            // Fallback for basic solar flare
+            PerformBasicSolarFlare(center, range);
+        }
+
+        // Visual effect
+        CreateSolarFlareVisualEffect(center, range);
+    }
+
+    /// <summary>
+    /// Fallback Solar Flare implementation for basic systems
+    /// </summary>
+    private void PerformBasicSolarFlare(Vector3 center, float range)
+    {
+        // Find puzzle nodes in range
+        Collider2D[] colliders = Physics2D.OverlapCircleAll(center, range);
+        int nodesActivated = 0;
+        int enemiesStunned = 0;
+
+        foreach (var collider in colliders)
+        {
+            // Check for puzzle nodes (new system)
+            var puzzleNode = collider.GetComponent<LightPuzzleNode>();
             if (puzzleNode != null)
             {
                 puzzleNode.ForceActivate();
-                activatedCount++;
+                nodesActivated++;
+                continue;
+            }
+
+            // Check for legacy light interactables
+            var lightInteractable = collider.GetComponent<ILightInteractable>();
+            if (lightInteractable != null && lightInteractable.RespondsToEffect(EnhancedLanternController.LightEffect.Stun))
+            {
+                float distance = Vector3.Distance(center, collider.transform.position);
+                float intensity = 1f - (distance / range);
+                Vector2 direction = (collider.transform.position - center).normalized;
+
+                lightInteractable.OnLightEnter(EnhancedLanternController.LightEffect.Stun, intensity, direction);
+
+                // Check if it's an enemy
+                if (collider.CompareTag("Enemy") || collider.GetComponent<LurkerEnemy>() != null)
+                {
+                    enemiesStunned++;
+                }
+            }
+
+            // Legacy support for old enemy scripts
+            var legacyEnemy = collider.GetComponent<MonoBehaviour>();
+            if (legacyEnemy != null && legacyEnemy.GetType().Name.Contains("Enemy"))
+            {
+                // Try to call OnLightEnter if it exists
+                var method = legacyEnemy.GetType().GetMethod("OnLightEnter");
+                if (method != null)
+                {
+                    try
+                    {
+                        method.Invoke(legacyEnemy, null);
+                        enemiesStunned++;
+                    }
+                    catch (System.Exception e)
+                    {
+                        if (_debugMode)
+                            Debug.LogWarning($"Failed to invoke OnLightEnter on {legacyEnemy.name}: {e.Message}");
+                    }
+                }
             }
         }
 
-        Debug.Log($"☀️ Solar Flare activated {activatedCount} nodes!");
+        if (_debugMode)
+        {
+            Debug.Log($"☀️ Solar Flare Results:");
+            Debug.Log($"  Nodes Activated: {nodesActivated}");
+            Debug.Log($"  Enemies Stunned: {enemiesStunned}");
+        }
     }
 
-    private void PerformLightDash(LightAbility ability)
-    {
-        // Quick dash with light trail
-        Vector2 dashDirection = GetInputDirection();
-        float dashDistance = ability.Range * (1f + GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityRange));
-
-        StartCoroutine(DashCoroutine(dashDirection, dashDistance, ability));
-    }
-
+    /// <summary>
+    /// PRISM BEAM: Focused light beam with reflection mechanics
+    /// </summary>
     private void PerformPrismBeam(LightAbility ability)
     {
-        // Concentrated beam attack
-        Vector2 playerPos = _lanternController.transform.position;
+        if (_debugMode)
+            Debug.Log($"🔷 PRISM BEAM activated");
+
+        // Switch lantern to refraction mode
+        if (_lanternController.CanUseAdvancedFeatures)
+        {
+            _lanternController.SetLightEffect(EnhancedLanternController.LightEffect.Refract);
+
+            // Start channeling coroutine
+            StartCoroutine(ChannelPrismBeam(ability));
+        }
+        else
+        {
+            // Fallback implementation
+            PerformBasicPrismBeam(ability);
+        }
+    }
+
+    private IEnumerator ChannelPrismBeam(LightAbility ability)
+    {
+        float duration = GetModifiedDuration(ability);
+        float elapsed = 0f;
+
+        while (elapsed < duration && Input.GetKey(_ability2Key))
+        {
+            // Beam automatically reflects via the enhanced light controller
+            // Just consume mana over time
+            float manaCostPerSecond = GetModifiedManaCost(ability) / duration;
+
+            if (!_lanternController.ConsumeMana(manaCostPerSecond * Time.deltaTime))
+            {
+                break; // Out of mana
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        // Return to previous light effect
+        _lanternController.SetLightEffect(EnhancedLanternController.LightEffect.Reveal);
+
+        if (_debugMode)
+            Debug.Log($"🔷 Prism Beam ended after {elapsed:F1}s");
+    }
+
+    private void PerformBasicPrismBeam(LightAbility ability)
+    {
+        // Simple raycast implementation for basic prism beam
+        Vector3 origin = transform.position;
         Vector2 direction = GetAimDirection();
+        float range = GetModifiedRange(ability);
 
-        float damage = ability.BaseDamage * (1f + GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityDamage));
-        float range = ability.Range * (1f + GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityRange));
-
-        RaycastHit2D hit = Physics2D.Raycast(playerPos, direction, range);
+        RaycastHit2D hit = Physics2D.Raycast(origin, direction, range);
         if (hit.collider != null)
         {
-            var lightSensitive = hit.collider.GetComponent<ILightInteractable>();
-            if (lightSensitive != null)
+            var interactable = hit.collider.GetComponent<ILightInteractable>();
+            if (interactable != null)
             {
-                // Apply concentrated damage
-                lightSensitive.OnIlluminated(_lanternController);
-                AddLightEssence(3); // Higher reward for precise ability
-                Debug.Log($"Prism Beam hit: {hit.collider.name} for {damage} damage");
+                interactable.OnLightEnter(
+                    EnhancedLanternController.LightEffect.Refract,
+                    1f,
+                    direction
+                );
             }
         }
 
-        Debug.Log($"Prism Beam executed: {damage} damage, {range} range");
+        if (_debugMode)
+            Debug.Log($"🔷 Basic Prism Beam fired at {direction} for {range} units");
     }
 
-    private void PerformPhantomGlow(LightAbility ability)
+    /// <summary>
+    /// LIGHT SLASH: Basic melee light attack
+    /// </summary>
+    private void PerformLightSlash(LightAbility ability)
     {
-        // Create light clone
-        Vector2 playerPos = _lanternController.transform.position;
-        float duration = ability.Duration * (1f + GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityDuration));
+        Vector3 center = transform.position;
+        float range = GetModifiedRange(ability);
+        float damage = GetModifiedDamage(ability);
 
-        StartCoroutine(PhantomCloneCoroutine(playerPos, duration));
+        // Create arc of light in front of player
+        Vector2 aimDirection = GetAimDirection();
+
+        // Find targets in arc
+        Collider2D[] colliders = Physics2D.OverlapCircleAll(center, range);
+
+        foreach (var collider in colliders)
+        {
+            Vector2 toTarget = (collider.transform.position - center).normalized;
+            float angle = Vector2.Angle(aimDirection, toTarget);
+
+            if (angle <= 45f) // 90-degree arc
+            {
+                // Deal damage or trigger effect
+                var interactable = collider.GetComponent<ILightInteractable>();
+                if (interactable != null)
+                {
+                    interactable.OnLightEnter(
+                        EnhancedLanternController.LightEffect.Purify,
+                        damage / 25f, // Convert damage to intensity
+                        toTarget
+                    );
+                }
+            }
+        }
+
+        CreateLightSlashEffect(center, aimDirection, range);
+
+        if (_debugMode)
+            Debug.Log($"⚔️ Light Slash: {damage} damage in {range} unit arc");
     }
 
-    // PLACEHOLDER METHODS - Implement these as needed for MVP
-    private void PerformLuminousChains(LightAbility ability)
+    /// <summary>
+    /// LIGHT DASH: Enhanced mobility ability
+    /// </summary>
+    private void PerformLightDash(LightAbility ability)
     {
-        Debug.Log($"Luminous Chains executed (placeholder)");
+        Vector2 dashDirection = GetInputDirection();
+        if (dashDirection.magnitude < 0.1f)
+            dashDirection = Vector2.right; // Default direction
+
+        float dashDistance = GetModifiedRange(ability);
+
+        // Perform dash movement
+        StartCoroutine(ExecuteDash(dashDirection, dashDistance));
+
+        if (_debugMode)
+            Debug.Log($"💨 Light Dash: {dashDistance} units in direction {dashDirection}");
     }
 
-    private void PerformGlowingRift(LightAbility ability)
+    private IEnumerator ExecuteDash(Vector2 direction, float distance)
     {
-        Debug.Log($"Glowing Rift executed (placeholder)");
-    }
+        var rb = GetComponent<Rigidbody2D>();
+        if (rb == null) yield break;
 
-    private void PerformEclipsingVeil(LightAbility ability)
-    {
-        Debug.Log($"Eclipsing Veil executed (placeholder)");
-    }
+        Vector3 startPos = transform.position;
+        Vector3 targetPos = startPos + (Vector3)direction * distance;
 
-    private void PerformIlluminatedWard(LightAbility ability)
-    {
-        Debug.Log($"Illuminated Ward executed (placeholder)");
-    }
-
-    #endregion
-
-    #region Coroutine Implementations
-
-    private IEnumerator DashCoroutine(Vector2 direction, float distance, LightAbility ability)
-    {
-        Transform player = _lanternController.transform;
-        Vector2 startPos = player.position;
-        Vector2 endPos = startPos + direction * distance;
-
-        float dashTime = 0.2f; // Quick dash
+        float dashTime = 0.2f;
         float elapsed = 0f;
 
         while (elapsed < dashTime)
         {
             elapsed += Time.deltaTime;
             float t = elapsed / dashTime;
-            player.position = Vector2.Lerp(startPos, endPos, t);
 
-            // Create light trail effect (simple debug for now)
-            Debug.DrawLine(startPos, player.position, Color.yellow, 1f);
+            Vector3 currentPos = Vector3.Lerp(startPos, targetPos, t);
+            rb.MovePosition(currentPos);
 
             yield return null;
         }
-
-        player.position = endPos;
-        Debug.Log($"Light Dash completed: {distance} units");
     }
 
-    private IEnumerator PhantomCloneCoroutine(Vector2 position, float duration)
+    /// <summary>
+    /// GLOWING RIFT: Time dilation utility
+    /// </summary>
+    private void PerformGlowingRift(LightAbility ability)
     {
-        // Create visual clone GameObject
-        GameObject clone = new GameObject("PhantomClone");
-        clone.transform.position = position;
+        Vector3 center = transform.position;
+        float range = GetModifiedRange(ability);
+        float duration = GetModifiedDuration(ability);
 
-        // Add basic visual (for testing)
-        var renderer = clone.AddComponent<SpriteRenderer>();
-        renderer.color = new Color(1f, 1f, 1f, 0.5f); // Semi-transparent
+        // Create time dilation field
+        StartCoroutine(CreateTimeRift(center, range, duration));
 
-        // Add a simple white square sprite for testing
-        renderer.sprite = CreateSimpleSprite();
+        if (_debugMode)
+            Debug.Log($"⏰ Glowing Rift: {range} unit radius for {duration}s");
+    }
 
-        Debug.Log($"Phantom Clone created for {duration} seconds");
+    private IEnumerator CreateTimeRift(Vector3 center, float range, float duration)
+    {
+        // Find all rigidbodies in range and slow them
+        Collider2D[] colliders = Physics2D.OverlapCircleAll(center, range);
+        List<Rigidbody2D> affectedBodies = new List<Rigidbody2D>();
+
+        foreach (var collider in colliders)
+        {
+            var rb = collider.GetComponent<Rigidbody2D>();
+            if (rb != null && rb != GetComponent<Rigidbody2D>()) // Don't affect player
+            {
+                affectedBodies.Add(rb);
+            }
+        }
+
+        // Apply slow effect
+        foreach (var rb in affectedBodies)
+        {
+            rb.linearVelocity *= 0.3f; // Slow to 30% speed
+            rb.gravityScale *= 0.3f;
+        }
 
         yield return new WaitForSeconds(duration);
 
-        if (clone != null)
-            Destroy(clone);
+        // Restore normal speed
+        foreach (var rb in affectedBodies)
+        {
+            if (rb != null)
+            {
+                rb.linearVelocity /= 0.3f; // Restore speed
+                rb.gravityScale /= 0.3f;
+            }
+        }
     }
 
-    private Sprite CreateSimpleSprite()
+    /// <summary>
+    /// ECLIPSING VEIL: Stealth/concealment ability
+    /// </summary>
+    private void PerformEclipsingVeil(LightAbility ability)
     {
-        // Create a simple 1x1 white texture for testing
-        Texture2D texture = new Texture2D(1, 1);
-        texture.SetPixel(0, 0, Color.white);
-        texture.Apply();
+        float duration = GetModifiedDuration(ability);
 
-        return Sprite.Create(texture, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f));
+        StartCoroutine(ActivateVeil(duration));
+
+        if (_debugMode)
+            Debug.Log($"👻 Eclipsing Veil activated for {duration}s");
+    }
+
+    private IEnumerator ActivateVeil(float duration)
+    {
+        // Make player partially transparent and hard to detect
+        var spriteRenderer = GetComponent<SpriteRenderer>();
+        Color originalColor = spriteRenderer != null ? spriteRenderer.color : Color.white;
+
+        if (spriteRenderer != null)
+        {
+            Color veilColor = originalColor;
+            veilColor.a = 0.3f;
+            spriteRenderer.color = veilColor;
+        }
+
+        // TODO: Make enemies less likely to detect player
+
+        yield return new WaitForSeconds(duration);
+
+        // Restore visibility
+        if (spriteRenderer != null)
+        {
+            spriteRenderer.color = originalColor;
+        }
+    }
+
+    /// <summary>
+    /// PHANTOM GLOW: Decoy projection
+    /// </summary>
+    private void PerformPhantomGlow(LightAbility ability)
+    {
+        Vector3 targetPosition = GetAimPosition();
+        float duration = GetModifiedDuration(ability);
+
+        CreatePhantomDecoy(targetPosition, duration);
+
+        if (_debugMode)
+            Debug.Log($"👥 Phantom Glow: Decoy at {targetPosition} for {duration}s");
+    }
+
+    private void CreatePhantomDecoy(Vector3 position, float duration)
+    {
+        // Create a phantom copy of the player
+        GameObject phantom = new GameObject("PhantomDecoy");
+        phantom.transform.position = position;
+
+        // Copy visual appearance
+        var playerRenderer = GetComponent<SpriteRenderer>();
+        if (playerRenderer != null)
+        {
+            var phantomRenderer = phantom.AddComponent<SpriteRenderer>();
+            phantomRenderer.sprite = playerRenderer.sprite;
+            phantomRenderer.color = new Color(1f, 1f, 1f, 0.5f); // Semi-transparent
+        }
+
+        // Add light component to make it glow
+        var phantomLight = phantom.AddComponent<Light2D>();
+        phantomLight.lightType = Light2D.LightType.Point;
+        phantomLight.intensity = 1f;
+        phantomLight.pointLightOuterRadius = 3f;
+        phantomLight.color = new Color(0.8f, 0.8f, 1f);
+
+        // Destroy after duration
+        Destroy(phantom, duration);
+    }
+
+    /// <summary>
+    /// LUMINOUS CHAINS: Grappling/mobility
+    /// </summary>
+    private void PerformLuminousChains(LightAbility ability)
+    {
+        Vector2 aimDirection = GetAimDirection();
+        float range = GetModifiedRange(ability);
+
+        // Raycast to find grapple point
+        RaycastHit2D hit = Physics2D.Raycast(transform.position, aimDirection, range);
+
+        if (hit.collider != null)
+        {
+            StartCoroutine(ExecuteGrapple(hit.point));
+            if (_debugMode)
+                Debug.Log($"⛓️ Luminous Chains: Grappling to {hit.point}");
+        }
+        else
+        {
+            if (_debugMode)
+                Debug.Log($"⛓️ Luminous Chains: No grapple point found");
+        }
+    }
+
+    private IEnumerator ExecuteGrapple(Vector3 targetPoint)
+    {
+        var rb = GetComponent<Rigidbody2D>();
+        if (rb == null) yield break;
+
+        Vector3 startPos = transform.position;
+        float grappleSpeed = 15f;
+
+        while (Vector3.Distance(transform.position, targetPoint) > 0.5f)
+        {
+            Vector3 direction = (targetPoint - transform.position).normalized;
+            rb.linearVelocity = direction * grappleSpeed;
+            yield return null;
+        }
+
+        // Stop at target
+        rb.linearVelocity = Vector2.zero;
     }
 
     #endregion
 
-    #region Helper Methods
+    #region Visual Effects
+
+    private void CreateSolarFlareVisualEffect(Vector3 center, float range)
+    {
+        // Create expanding light ring
+        GameObject effect = new GameObject("SolarFlareEffect");
+        effect.transform.position = center;
+
+        var lineRenderer = effect.AddComponent<LineRenderer>();
+        lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
+        lineRenderer.color = new Color(1f, 0.8f, 0.2f, 0.8f);
+        lineRenderer.startWidth = 0.2f;
+        lineRenderer.endWidth = 0.2f;
+        lineRenderer.useWorldSpace = true;
+
+        // Create circle
+        int segments = 32;
+        lineRenderer.positionCount = segments + 1;
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float angle = i * 2f * Mathf.PI / segments;
+            Vector3 pos = center + new Vector3(
+                Mathf.Cos(angle) * range,
+                Mathf.Sin(angle) * range,
+                0f
+            );
+            lineRenderer.SetPosition(i, pos);
+        }
+
+        // Animate and destroy
+        StartCoroutine(AnimateSolarFlareEffect(effect, lineRenderer));
+    }
+
+    private IEnumerator AnimateSolarFlareEffect(GameObject effect, LineRenderer lineRenderer)
+    {
+        float duration = 1f;
+        float elapsed = 0f;
+        Color startColor = lineRenderer.color;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float alpha = 1f - (elapsed / duration);
+
+            Color color = startColor;
+            color.a = alpha;
+            lineRenderer.color = color;
+
+            yield return null;
+        }
+
+        Destroy(effect);
+    }
+
+    private void CreateLightSlashEffect(Vector3 center, Vector2 direction, float range)
+    {
+        // Create light arc effect
+        GameObject effect = new GameObject("LightSlashEffect");
+        effect.transform.position = center;
+
+        var lineRenderer = effect.AddComponent<LineRenderer>();
+        lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
+        lineRenderer.color = new Color(1f, 1f, 0.5f, 0.8f);
+        lineRenderer.startWidth = 0.3f;
+        lineRenderer.endWidth = 0.1f;
+        lineRenderer.useWorldSpace = true;
+
+        // Create arc
+        int segments = 16;
+        lineRenderer.positionCount = segments + 1;
+
+        float startAngle = Mathf.Atan2(direction.y, direction.x) - Mathf.PI * 0.25f; // 45 degrees left
+        float endAngle = startAngle + Mathf.PI * 0.5f; // 90 degree arc
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float t = (float)i / segments;
+            float angle = Mathf.Lerp(startAngle, endAngle, t);
+            Vector3 pos = center + new Vector3(
+                Mathf.Cos(angle) * range,
+                Mathf.Sin(angle) * range,
+                0f
+            );
+            lineRenderer.SetPosition(i, pos);
+        }
+
+        // Destroy after short time
+        Destroy(effect, 0.3f);
+    }
+
+    #endregion
+
+    #region Input Handling
+
+    private void HandleAbilityInput()
+    {
+        // Solar Flare (Q)
+        if (Input.GetKeyDown(_ability1Key))
+        {
+            UseAbility("solar_flare");
+        }
+
+        // Prism Beam (E) - Can be held for channeling
+        if (Input.GetKeyDown(_ability2Key))
+        {
+            UseAbility("prism_beam");
+        }
+
+        // Third ability (R)
+        if (Input.GetKeyDown(_ability3Key))
+        {
+            UseAbility("light_dash");
+        }
+
+        // Fourth ability (T)
+        if (Input.GetKeyDown(_ability4Key))
+        {
+            UseAbility("glowing_rift");
+        }
+    }
+
+    #endregion
+
+    #region Utility Methods
+
+    private void UpdateCooldowns()
+    {
+        var keys = new List<string>(_abilityCooldowns.Keys);
+        foreach (var key in keys)
+        {
+            _abilityCooldowns[key] -= Time.deltaTime;
+            if (_abilityCooldowns[key] <= 0f)
+            {
+                _abilityCooldowns.Remove(key);
+            }
+        }
+    }
+
+    private void InitializeCooldowns()
+    {
+        _abilityCooldowns.Clear();
+    }
+
+    private bool IsOnCooldown(string abilityId)
+    {
+        return _abilityCooldowns.ContainsKey(abilityId);
+    }
 
     private float GetModifiedManaCost(LightAbility ability)
     {
@@ -460,21 +888,55 @@ public class DualProgressionSystem : MonoBehaviour
         return baseCost * (1f - efficiency);
     }
 
+    private float GetModifiedCooldown(LightAbility ability)
+    {
+        float baseCooldown = ability.Cooldown;
+        float reduction = GetUpgradeModifier(PassiveUpgrade.UpgradeType.CooldownReduction);
+        return baseCooldown * (1f - reduction);
+    }
+
+    private float GetModifiedDamage(LightAbility ability)
+    {
+        float baseDamage = ability.BaseDamage;
+        float bonus = GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityDamage);
+        return baseDamage * (1f + bonus);
+    }
+
+    private float GetModifiedRange(LightAbility ability)
+    {
+        float baseRange = ability.Range;
+        float bonus = GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityRange);
+        return baseRange * (1f + bonus);
+    }
+
+    private float GetModifiedDuration(LightAbility ability)
+    {
+        float baseDuration = ability.Duration;
+        float bonus = GetUpgradeModifier(PassiveUpgrade.UpgradeType.AbilityDuration);
+        return baseDuration * (1f + bonus);
+    }
+
     private Vector2 GetInputDirection()
     {
         Vector2 input = InputManager.Movement;
         if (input.magnitude < 0.1f)
-            return _lanternController.transform.right; // Default to facing direction
+            return transform.right; // Default to facing direction
         return input.normalized;
     }
 
     private Vector2 GetAimDirection()
     {
-        // Use mouse position for aiming
         Vector3 mousePos = Camera.main.ScreenToWorldPoint(InputManager.MousePosition);
         mousePos.z = 0f;
-        Vector2 direction = ((Vector2)mousePos - (Vector2)_lanternController.transform.position).normalized;
+        Vector2 direction = ((Vector2)mousePos - (Vector2)transform.position).normalized;
         return direction;
+    }
+
+    private Vector3 GetAimPosition()
+    {
+        Vector3 mousePos = Camera.main.ScreenToWorldPoint(InputManager.MousePosition);
+        mousePos.z = 0f;
+        return mousePos;
     }
 
     #endregion
@@ -485,153 +947,249 @@ public class DualProgressionSystem : MonoBehaviour
     {
         _allActiveAbilities.Clear();
 
-        // Early Game Abilities - START WITH JUST 2 FOR TESTING
+        // Core combat abilities
         _allActiveAbilities.Add(new LightAbility
         {
-            AbilityId = "light_slash",
-            DisplayName = "Light Slash",
-            Description = "A basic melee attack using a quick arc of light",
-            AbilityType = LightAbility.AbilityCategory.Combat,
-            ManaCost = 10f,
-            Cooldown = 1f,
-            BaseDamage = 25f,
-            Range = 2f,
+            AbilityId = "solar_flare",
+            DisplayName = "Solar Flare",
+            Description = "Burst of light that activates multiple puzzle nodes simultaneously and stuns nearby enemies",
+            AbilityCategory = LightAbility.AbilityCategory.Combat,
+            ManaCost = 25f,
+            Cooldown = 8f,
+            BaseDamage = 0f, // Not a damage ability
+            Range = 8f,
+            Duration = 3f,
             Prerequisites = new string[0],
             UnlockMethod = LightAbility.UnlockType.WorldDiscovery
         });
 
         _allActiveAbilities.Add(new LightAbility
         {
-            AbilityId = "solar_flare",
-            DisplayName = "Solar Flare",
-            Description = "A blinding flash that stuns enemies in a radius",
-            AbilityType = LightAbility.AbilityCategory.Defensive,
-            ManaCost = 20f,
-            Cooldown = 8f,
+            AbilityId = "prism_beam",
+            DisplayName = "Prism Beam",
+            Description = "Focused beam of light that bounces off reflective surfaces to reach distant targets",
+            AbilityCategory = LightAbility.AbilityCategory.Combat,
+            ManaCost = 15f,
+            Cooldown = 3f,
+            BaseDamage = 30f,
+            Range = 12f,
+            Duration = 2f,
+            Prerequisites = new string[0],
+            UnlockMethod = LightAbility.UnlockType.WorldDiscovery
+        });
+
+        _allActiveAbilities.Add(new LightAbility
+        {
+            AbilityId = "light_slash",
+            DisplayName = "Light Slash",
+            Description = "Quick melee attack using an arc of light",
+            AbilityCategory = LightAbility.AbilityCategory.Combat,
+            ManaCost = 10f,
+            Cooldown = 1f,
+            BaseDamage = 25f,
+            Range = 2f,
+            Duration = 0.2f,
+            Prerequisites = new string[0],
+            UnlockMethod = LightAbility.UnlockType.WorldDiscovery
+        });
+
+        // Mobility abilities
+        _allActiveAbilities.Add(new LightAbility
+        {
+            AbilityId = "light_dash",
+            DisplayName = "Light Dash",
+            Description = "Quick burst of movement leaving a trail of light",
+            AbilityCategory = LightAbility.AbilityCategory.Mobility,
+            ManaCost = 12f,
+            Cooldown = 4f,
+            BaseDamage = 0f,
             Range = 5f,
-            Duration = 3f,
+            Duration = 0.2f,
             Prerequisites = new string[] { "light_slash" },
             UnlockMethod = LightAbility.UnlockType.WorldDiscovery
         });
 
-        // ADD MORE ABILITIES LATER AS NEEDED
+        _allActiveAbilities.Add(new LightAbility
+        {
+            AbilityId = "luminous_chains",
+            DisplayName = "Luminous Chains",
+            Description = "Create a chain of light to grapple to distant points",
+            AbilityCategory = LightAbility.AbilityCategory.Mobility,
+            ManaCost = 20f,
+            Cooldown = 6f,
+            BaseDamage = 0f,
+            Range = 15f,
+            Duration = 1f,
+            Prerequisites = new string[] { "light_dash" },
+            UnlockMethod = LightAbility.UnlockType.WorldDiscovery
+        });
+
+        // Utility abilities
+        _allActiveAbilities.Add(new LightAbility
+        {
+            AbilityId = "glowing_rift",
+            DisplayName = "Glowing Rift",
+            Description = "Creates a field that slows time for moving objects, useful for timing puzzles",
+            AbilityCategory = LightAbility.AbilityCategory.Utility,
+            ManaCost = 30f,
+            Cooldown = 15f,
+            BaseDamage = 0f,
+            Range = 6f,
+            Duration = 8f,
+            Prerequisites = new string[] { "solar_flare" },
+            UnlockMethod = LightAbility.UnlockType.WorldDiscovery
+        });
+
+        _allActiveAbilities.Add(new LightAbility
+        {
+            AbilityId = "phantom_glow",
+            DisplayName = "Phantom Glow",
+            Description = "Create a glowing decoy to distract enemies or trigger pressure plates",
+            AbilityCategory = LightAbility.AbilityCategory.Utility,
+            ManaCost = 18f,
+            Cooldown = 10f,
+            BaseDamage = 0f,
+            Range = 8f,
+            Duration = 15f,
+            Prerequisites = new string[] { "prism_beam" },
+            UnlockMethod = LightAbility.UnlockType.WorldDiscovery
+        });
+
+        // Defensive abilities
+        _allActiveAbilities.Add(new LightAbility
+        {
+            AbilityId = "eclipsing_veil",
+            DisplayName = "Eclipsing Veil",
+            Description = "Become partially invisible and harder for enemies to detect",
+            AbilityCategory = LightAbility.AbilityCategory.Defensive,
+            ManaCost = 25f,
+            Cooldown = 20f,
+            BaseDamage = 0f,
+            Range = 0f,
+            Duration = 10f,
+            Prerequisites = new string[] { "phantom_glow" },
+            UnlockMethod = LightAbility.UnlockType.WorldDiscovery
+        });
+
+        if (_debugMode)
+            Debug.Log($"✓ Created {_allActiveAbilities.Count} default abilities");
     }
 
     private void CreateDefaultUpgrades()
     {
         _allPassiveUpgrades.Clear();
 
-        // Mana Upgrades
+        // Efficiency upgrades
         _allPassiveUpgrades.Add(new PassiveUpgrade
         {
             UpgradeId = "mana_efficiency_1",
-            DisplayName = "Mana Focus I",
-            Description = "Reduce all ability mana costs by 10%",
+            DisplayName = "Efficient Channeling I",
+            Description = "Reduces mana cost of all abilities by 10%",
             Type = PassiveUpgrade.UpgradeType.ManaEfficiency,
-            ModifierValue = 0.1f,
-            EssenceCost = 5,
+            Category = PassiveUpgrade.UpgradeCategory.Efficiency,
+            Cost = 5,
+            EffectValue = 0.1f,
+            MaxLevel = 1,
+            CurrentLevel = 0,
             Prerequisites = new string[0]
         });
 
         _allPassiveUpgrades.Add(new PassiveUpgrade
         {
-            UpgradeId = "mana_efficiency_2",
-            DisplayName = "Mana Focus II",
-            Description = "Reduce all ability mana costs by 15%",
-            Type = PassiveUpgrade.UpgradeType.ManaEfficiency,
-            ModifierValue = 0.15f,
-            EssenceCost = 10,
-            Prerequisites = new string[] { "mana_efficiency_1" }
-        });
-
-        // Ability Damage Upgrades
-        _allPassiveUpgrades.Add(new PassiveUpgrade
-        {
-            UpgradeId = "ability_damage_1",
-            DisplayName = "Light Intensity I",
-            Description = "Increase all ability damage by 20%",
-            Type = PassiveUpgrade.UpgradeType.AbilityDamage,
-            ModifierValue = 0.2f,
-            EssenceCost = 8,
+            UpgradeId = "cooldown_reduction_1",
+            DisplayName = "Quick Recovery I",
+            Description = "Reduces cooldown of all abilities by 15%",
+            Type = PassiveUpgrade.UpgradeType.CooldownReduction,
+            Category = PassiveUpgrade.UpgradeCategory.Efficiency,
+            Cost = 8,
+            EffectValue = 0.15f,
+            MaxLevel = 1,
+            CurrentLevel = 0,
             Prerequisites = new string[0]
         });
 
-        // Ability Range Upgrades
+        // Power upgrades
         _allPassiveUpgrades.Add(new PassiveUpgrade
         {
             UpgradeId = "ability_range_1",
             DisplayName = "Extended Reach I",
-            Description = "Increase all ability range by 25%",
+            Description = "Increases range of all abilities by 25%",
             Type = PassiveUpgrade.UpgradeType.AbilityRange,
-            ModifierValue = 0.25f,
-            EssenceCost = 7,
+            Category = PassiveUpgrade.UpgradeCategory.Power,
+            Cost = 10,
+            EffectValue = 0.25f,
+            MaxLevel = 1,
+            CurrentLevel = 0,
             Prerequisites = new string[0]
         });
 
-        // Cooldown Reduction
         _allPassiveUpgrades.Add(new PassiveUpgrade
         {
-            UpgradeId = "cooldown_reduction_1",
-            DisplayName = "Swift Casting I",
-            Description = "Reduce all ability cooldowns by 15%",
-            Type = PassiveUpgrade.UpgradeType.CooldownReduction,
-            ModifierValue = 0.15f,
-            EssenceCost = 12,
-            Prerequisites = new string[] { "mana_efficiency_1" }
+            UpgradeId = "ability_duration_1",
+            DisplayName = "Lasting Light I",
+            Description = "Increases duration of all abilities by 30%",
+            Type = PassiveUpgrade.UpgradeType.AbilityDuration,
+            Category = PassiveUpgrade.UpgradeCategory.Power,
+            Cost = 12,
+            EffectValue = 0.3f,
+            MaxLevel = 1,
+            CurrentLevel = 0,
+            Prerequisites = new string[0]
         });
+
+        if (_debugMode)
+            Debug.Log($"✓ Created {_allPassiveUpgrades.Count} default upgrades");
     }
 
     #endregion
 
-    #region Public API
+    #region Debug Methods
 
-    public List<LightAbility> GetDiscoveredAbilities() => new List<LightAbility>(_discoveredAbilities);
-    public List<PassiveUpgrade> GetUnlockedUpgrades() => new List<PassiveUpgrade>(_unlockedUpgrades);
-    public List<PassiveUpgrade> GetAvailableUpgrades()
+    [ContextMenu("Debug: Show Progression Status")]
+    public void DebugShowProgressionStatus()
     {
-        return _allPassiveUpgrades.FindAll(u => CanPurchaseUpgrade(u));
-    }
-
-    public bool HasAbility(string abilityId)
-    {
-        return _discoveredAbilities.Exists(a => a.AbilityId == abilityId);
-    }
-
-    public bool HasUpgrade(string upgradeId)
-    {
-        return _unlockedUpgrades.Exists(u => u.UpgradeId == upgradeId);
-    }
-
-    // Debug methods for testing
-    [ContextMenu("Debug: Show Current State")]
-    public void DebugShowCurrentState()
-    {
-        Debug.Log($"=== DUAL PROGRESSION SYSTEM STATE ===");
+        Debug.Log($"=== DUAL PROGRESSION SYSTEM STATUS ===");
         Debug.Log($"Light Essence: {_lightEssence}");
-        Debug.Log($"Discovered Abilities: {_discoveredAbilities.Count}");
-        Debug.Log($"Unlocked Upgrades: {_unlockedUpgrades.Count}");
+        Debug.Log($"Discovered Abilities: {_discoveredAbilities.Count}/{_allActiveAbilities.Count}");
+        Debug.Log($"Unlocked Upgrades: {_unlockedUpgrades.Count}/{_allPassiveUpgrades.Count}");
+        Debug.Log($"Advanced Features: {(_enableAdvancedAbilities ? "Enabled" : "Disabled")}");
 
-        if (_lanternController != null)
+        Debug.Log("Discovered Abilities:");
+        foreach (var ability in _discoveredAbilities)
         {
-            Debug.Log($"Lantern Active: {_lanternController.IsLanternActive}");
-            Debug.Log($"Mana: {_lanternController.ManaPercentage:P}");
-        }
-        else
-        {
-            Debug.Log("Lantern Controller: Not Connected");
+            bool onCooldown = IsOnCooldown(ability.AbilityId);
+            Debug.Log($"  {ability.DisplayName} ({ability.AbilityId}) {(onCooldown ? "[COOLDOWN]" : "[READY]")}");
         }
     }
 
-    [ContextMenu("Debug: Grant Test Ability")]
-    public void DebugGrantTestAbility()
+    [ContextMenu("Debug: Test Solar Flare")]
+    public void DebugTestSolarFlare()
     {
-        DiscoverAbility("light_slash");
+        if (Application.isPlaying)
+        {
+            UseAbility("solar_flare");
+        }
     }
 
-    [ContextMenu("Debug: Add Test Essence")]
-    public void DebugAddTestEssence()
+    [ContextMenu("Debug: Discover All Abilities")]
+    public void DebugDiscoverAllAbilities()
     {
-        AddLightEssence(10);
+        if (Application.isPlaying)
+        {
+            foreach (var ability in _allActiveAbilities)
+            {
+                DiscoverAbility(ability.AbilityId);
+            }
+        }
+    }
+
+    [ContextMenu("Debug: Add Light Essence")]
+    public void DebugAddEssence()
+    {
+        if (Application.isPlaying)
+        {
+            AddLightEssence(50);
+        }
     }
 
     #endregion

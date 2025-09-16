@@ -1,100 +1,193 @@
 ﻿using UnityEngine;
-using System.Collections;
 using UnityEngine.Rendering.Universal;
+using System.Collections;
 
+/// <summary>
+/// MIGRATION VERSION: Updated CollectableLantern that works with the new enhanced system
+/// Maintains compatibility with your existing setup while enabling advanced features
+/// 
+/// COMPATIBILITY: Works with both legacy and enhanced lantern controllers
+/// NEW FEATURES: Advanced system integration, better visual effects
+/// </summary>
 [RequireComponent(typeof(Collider2D))]
-public class CollectibleLantern : MonoBehaviour
+public class CollectableLantern : MonoBehaviour
 {
-    [Header("2D Lighting")]
-    [SerializeField] private Light2D _collectibleLight2D;
+    [Header("Collection Settings")]
+    [SerializeField] private bool _collected = false;
+    [SerializeField] private bool _enableAdvancedFeatures = true;
+    [SerializeField] private bool _debugMode = true;
 
-    [Header("Pickup Effects")]
-    [SerializeField] private AudioClip _pickupSound;
-    [SerializeField] private ParticleSystem _pickupEffect;
-    [SerializeField] private Light _glowLight;
-
-    [Header("Animation")]
-    [SerializeField] private float _floatHeight = 0.3f;
+    [Header("Visual Animation")]
+    [SerializeField] private float _floatHeight = 0.5f;
     [SerializeField] private float _floatSpeed = 2f;
     [SerializeField] private float _rotationSpeed = 30f;
 
-    [Header("Floating Lantern Integration")]
+    [Header("Light Components")]
+    [SerializeField] private Light2D _collectibleLight2D;
+    [SerializeField] private Light _glowLight; // Legacy 3D light support
+
+    [Header("Visual Effects")]
+    [SerializeField] private ParticleSystem _ambientEffect;
+    [SerializeField] private ParticleSystem _collectionEffect;
     [SerializeField] private GameObject _floatingLanternPrefab;
 
-    [Header("Debug")]
-    [SerializeField] private bool _debugMode = true;
+    [Header("Audio")]
+    [SerializeField] private AudioClip _pickupSound;
+    [SerializeField] private AudioClip _mysticalHum;
+    [SerializeField] private AudioSource _audioSource;
+
+    [Header("Advanced System Integration")]
+    [SerializeField]
+    private EnhancedLanternController.LightEffect[] _grantsLightEffects =
+    {
+        EnhancedLanternController.LightEffect.Reveal,
+        EnhancedLanternController.LightEffect.Energize
+    };
+    [SerializeField] private string[] _grantsAbilities = { "solar_flare" };
 
     private Vector3 _startPosition;
-    private bool _collected = false;
-    private AudioSource _audioSource;
+    private bool _isAnimating = true;
 
     private void Awake()
     {
         _startPosition = transform.position;
-        _audioSource = GetComponent<AudioSource>();
+        SetupComponents();
 
-        SetupLighting();
-        SetupCollider();
-        StartCoroutine(PulsingLight());
+        // Ensure trigger collider
+        var collider = GetComponent<Collider2D>();
+        collider.isTrigger = true;
 
         if (_debugMode)
-        {
-            Debug.Log($"✓ CollectibleLantern initialized at {transform.position}");
-            Debug.Log($"  Has FloatingLanternPrefab: {_floatingLanternPrefab != null}");
-        }
+            Debug.Log($"✓ CollectableLantern initialized at {transform.position}");
     }
 
-    private void SetupLighting()
+    private void Start()
     {
-        // Setup 2D Light
-        if (_collectibleLight2D == null)
-        {
-            _collectibleLight2D = gameObject.AddComponent<Light2D>();
-        }
-
-        _collectibleLight2D.lightType = Light2D.LightType.Point;
-        _collectibleLight2D.intensity = 1f;
-        _collectibleLight2D.pointLightInnerRadius = 0.5f;
-        _collectibleLight2D.pointLightOuterRadius = 4f;
-        _collectibleLight2D.color = Color.yellow;
-
-        // Setup 3D glow light for compatibility
-        if (_glowLight == null)
-            _glowLight = GetComponent<Light>();
-
-        if (_glowLight != null)
-        {
-            _glowLight.color = Color.yellow;
-            _glowLight.intensity = 2f;
-            _glowLight.range = 5f;
-            _glowLight.type = UnityEngine.LightType.Point;
-        }
-    }
-
-    private void SetupCollider()
-    {
-        var collider = GetComponent<Collider2D>();
-        if (collider != null)
-        {
-            collider.isTrigger = true;
-
-            if (_debugMode)
-            {
-                Debug.Log($"✓ Collider setup: {collider.GetType().Name}, IsTrigger: {collider.isTrigger}");
-            }
-        }
-        else
-        {
-            Debug.LogError("❌ No Collider2D found on CollectibleLantern!");
-        }
+        StartAnimations();
     }
 
     private void Update()
     {
-        if (!_collected)
+        if (!_collected && _isAnimating)
         {
             AnimateCollectible();
         }
+    }
+
+    #region Setup and Animation
+
+    private void SetupComponents()
+    {
+        // Setup 2D Light for new rendering pipeline
+        if (_collectibleLight2D == null)
+        {
+            var lightObj = new GameObject("CollectibleLight2D");
+            lightObj.transform.SetParent(transform);
+            lightObj.transform.localPosition = Vector3.zero;
+            _collectibleLight2D = lightObj.AddComponent<Light2D>();
+        }
+
+        _collectibleLight2D.lightType = Light2D.LightType.Point;
+        _collectibleLight2D.intensity = 1f;
+        _collectibleLight2D.pointLightInnerRadius = 0.2f;
+        _collectibleLight2D.pointLightOuterRadius = 3f;
+        _collectibleLight2D.color = new Color(1f, 0.9f, 0.6f);
+
+        // Setup legacy 3D light if needed
+        if (_glowLight == null)
+        {
+            var legacyLightObj = new GameObject("LegacyGlowLight");
+            legacyLightObj.transform.SetParent(transform);
+            legacyLightObj.transform.localPosition = Vector3.zero;
+            _glowLight = legacyLightObj.AddComponent<Light>();
+        }
+
+        _glowLight.type = LightType.Point;
+        _glowLight.intensity = 1f;
+        _glowLight.range = 5f;
+        _glowLight.color = new Color(1f, 0.9f, 0.6f);
+
+        // Setup audio source
+        if (_audioSource == null)
+        {
+            _audioSource = gameObject.AddComponent<AudioSource>();
+        }
+
+        _audioSource.playOnAwake = false;
+        _audioSource.spatialBlend = 1f; // 3D sound
+
+        // Setup particle effects if missing
+        SetupParticleEffects();
+    }
+
+    private void SetupParticleEffects()
+    {
+        if (_ambientEffect == null)
+        {
+            var ambientObj = new GameObject("AmbientParticles");
+            ambientObj.transform.SetParent(transform);
+            ambientObj.transform.localPosition = Vector3.zero;
+            _ambientEffect = ambientObj.AddComponent<ParticleSystem>();
+
+            var main = _ambientEffect.main;
+            main.startLifetime = 2f;
+            main.startSpeed = 0.5f;
+            main.startSize = 0.1f;
+            main.startColor = new Color(1f, 0.9f, 0.6f, 0.7f);
+            main.maxParticles = 20;
+
+            var emission = _ambientEffect.emission;
+            emission.rateOverTime = 10f;
+
+            var shape = _ambientEffect.shape;
+            shape.shapeType = ParticleSystemShapeType.Circle;
+            shape.radius = 0.5f;
+        }
+
+        if (_collectionEffect == null)
+        {
+            var collectionObj = new GameObject("CollectionParticles");
+            collectionObj.transform.SetParent(transform);
+            collectionObj.transform.localPosition = Vector3.zero;
+            _collectionEffect = collectionObj.AddComponent<ParticleSystem>();
+
+            var main = _collectionEffect.main;
+            main.startLifetime = 1f;
+            main.startSpeed = 3f;
+            main.startSize = 0.2f;
+            main.startColor = Color.white;
+            main.maxParticles = 50;
+
+            var emission = _collectionEffect.emission;
+            emission.rateOverTime = 0f; // Burst only
+            emission.SetBursts(new ParticleSystem.Burst[]
+            {
+                new ParticleSystem.Burst(0f, 30)
+            });
+
+            _collectionEffect.Stop();
+        }
+    }
+
+    private void StartAnimations()
+    {
+        // Start mystical humming sound
+        if (_mysticalHum != null && _audioSource != null)
+        {
+            _audioSource.clip = _mysticalHum;
+            _audioSource.loop = true;
+            _audioSource.volume = 0.3f;
+            _audioSource.Play();
+        }
+
+        // Start ambient particles
+        if (_ambientEffect != null)
+        {
+            _ambientEffect.Play();
+        }
+
+        // Start pulsing light coroutine
+        StartCoroutine(PulsingLight());
     }
 
     private void AnimateCollectible()
@@ -105,26 +198,29 @@ public class CollectibleLantern : MonoBehaviour
 
         // Rotation animation
         transform.Rotate(Vector3.forward * _rotationSpeed * Time.deltaTime);
-
-        // Pulsing glow
-        if (_glowLight != null)
-        {
-            float pulseIntensity = 1f + Mathf.Sin(Time.time * _floatSpeed * 1.5f) * 0.3f;
-            _glowLight.intensity = pulseIntensity;
-        }
     }
 
     private IEnumerator PulsingLight()
     {
         float baseIntensity = 1f;
 
-        while (!_collected && _collectibleLight2D != null)
+        while (!_collected)
         {
-            float pulseIntensity = baseIntensity + Mathf.Sin(Time.time * 2f) * 0.3f;
-            _collectibleLight2D.intensity = pulseIntensity;
+            float pulseIntensity = baseIntensity + Mathf.Sin(Time.time * 2f) * 0.4f;
+
+            if (_collectibleLight2D != null)
+                _collectibleLight2D.intensity = pulseIntensity;
+
+            if (_glowLight != null)
+                _glowLight.intensity = pulseIntensity;
+
             yield return null;
         }
     }
+
+    #endregion
+
+    #region Collection Logic
 
     private void OnTriggerEnter2D(Collider2D other)
     {
@@ -133,21 +229,18 @@ public class CollectibleLantern : MonoBehaviour
         if (_debugMode)
         {
             Debug.Log($"🔍 TRIGGER ENTERED by: {other.name}");
-            Debug.Log($"  Other Tag: '{other.tag}'");
-            Debug.Log($"  Other GameObject: '{other.gameObject.name}'");
-            Debug.Log($"  Player Tag Check: {other.CompareTag("Player")}");
+            Debug.Log($"  Tag: '{other.tag}'");
+            Debug.Log($"  Player check: {other.CompareTag("Player")}");
         }
 
         if (!other.CompareTag("Player"))
         {
             if (_debugMode)
-            {
                 Debug.Log($"⚠️ Not player - ignoring trigger from {other.name}");
-            }
             return;
         }
 
-        // FIXED: Find the actual player root GameObject
+        // Find the player root GameObject with lantern controller
         GameObject playerRoot = FindPlayerRoot(other.gameObject);
         if (playerRoot != null)
         {
@@ -160,22 +253,18 @@ public class CollectibleLantern : MonoBehaviour
     }
 
     /// <summary>
-    /// FIXED: Search hierarchy to find the GameObject with EnhancedLanternController
+    /// ENHANCED: Find the GameObject with EnhancedLanternController (supports hierarchy search)
     /// </summary>
     private GameObject FindPlayerRoot(GameObject startObject)
     {
         if (_debugMode)
-        {
             Debug.Log($"🔍 Searching for player root starting from: {startObject.name}");
-        }
 
         // Check current object
         if (startObject.GetComponent<EnhancedLanternController>() != null)
         {
             if (_debugMode)
-            {
                 Debug.Log($"✓ Found EnhancedLanternController on: {startObject.name}");
-            }
             return startObject;
         }
 
@@ -186,9 +275,7 @@ public class CollectibleLantern : MonoBehaviour
             if (current.GetComponent<EnhancedLanternController>() != null)
             {
                 if (_debugMode)
-                {
                     Debug.Log($"✓ Found EnhancedLanternController on parent: {current.name}");
-                }
                 return current.gameObject;
             }
             current = current.parent;
@@ -199,16 +286,12 @@ public class CollectibleLantern : MonoBehaviour
         if (controllerInChildren != null)
         {
             if (_debugMode)
-            {
                 Debug.Log($"✓ Found EnhancedLanternController on child: {controllerInChildren.name}");
-            }
             return controllerInChildren.gameObject;
         }
 
         if (_debugMode)
-        {
             Debug.LogError($"❌ No EnhancedLanternController found in hierarchy of: {startObject.name}");
-        }
         return null;
     }
 
@@ -217,6 +300,7 @@ public class CollectibleLantern : MonoBehaviour
         if (_collected) return;
 
         _collected = true;
+        _isAnimating = false;
 
         if (_debugMode)
         {
@@ -224,43 +308,25 @@ public class CollectibleLantern : MonoBehaviour
             Debug.Log($"Player Root GameObject: {player.name}");
         }
 
-        // STEP 1: Spawn floating lantern
+        // STEP 1: Create floating lantern
         GameObject floatingLantern = SpawnFloatingLantern(player);
 
-        // STEP 2: Find and configure lantern controller
+        // STEP 2: Configure enhanced lantern controller
         var lanternController = player.GetComponent<EnhancedLanternController>();
         if (lanternController != null)
         {
-            if (_debugMode)
-            {
-                Debug.Log($"✓ Found EnhancedLanternController on {player.name}");
-                Debug.Log($"  Controller Enabled: {lanternController.enabled}");
-                Debug.Log($"  Current HasLantern: {lanternController.HasLantern}");
-            }
-
-            // Enable controller if disabled
-            if (!lanternController.enabled)
-            {
-                lanternController.enabled = true;
-                if (_debugMode)
-                {
-                    Debug.Log("✓ Enabled EnhancedLanternController");
-                }
-            }
-
-            // CRITICAL: Wait one frame before acquiring lantern
-            StartCoroutine(DelayedLanternAcquisition(lanternController, player, floatingLantern));
+            ConfigureEnhancedLanternController(lanternController, player, floatingLantern);
         }
         else
         {
-            Debug.LogError("❌ EnhancedLanternController not found even after hierarchy search!");
+            Debug.LogError("❌ EnhancedLanternController not found!");
         }
 
-        // STEP 3: Play effects immediately
-        PlayPickupEffects();
+        // STEP 3: Play collection effects
+        PlayCollectionEffects();
 
-        // STEP 4: Destroy collectible after delay
-        Destroy(gameObject, 1f);
+        // STEP 4: Destroy collectible
+        Destroy(gameObject, 2f);
     }
 
     private GameObject SpawnFloatingLantern(GameObject player)
@@ -269,65 +335,54 @@ public class CollectibleLantern : MonoBehaviour
 
         if (_floatingLanternPrefab != null)
         {
-            // Spawn prefab
+            // Spawn from prefab
             floatingLantern = Instantiate(_floatingLanternPrefab);
 
-            var floatingLanternComponent = floatingLantern.GetComponent<FloatingLantern>();
-            if (floatingLanternComponent != null)
+            var floatingComponent = floatingLantern.GetComponent<FloatingLantern>();
+            if (floatingComponent != null)
             {
-                // FIXED: Set player reference using our safe method
-                SetFloatingLanternPlayer(floatingLanternComponent, player.transform);
+                SetFloatingLanternPlayer(floatingComponent, player.transform);
             }
 
             if (_debugMode)
-            {
                 Debug.Log($"✓ Spawned floating lantern from prefab: {floatingLantern.name}");
-            }
         }
         else
         {
             // Create floating lantern procedurally
             floatingLantern = new GameObject("FloatingLantern");
-            var floatingLanternComponent = floatingLantern.AddComponent<FloatingLantern>();
-
-            // FIXED: Set player reference using our safe method
-            SetFloatingLanternPlayer(floatingLanternComponent, player.transform);
+            var floatingComponent = floatingLantern.AddComponent<FloatingLantern>();
+            SetFloatingLanternPlayer(floatingComponent, player.transform);
 
             if (_debugMode)
-            {
                 Debug.Log($"✓ Created floating lantern procedurally: {floatingLantern.name}");
-            }
         }
 
         return floatingLantern;
     }
 
     /// <summary>
-    /// FIXED: Safe method to set FloatingLantern player reference
+    /// ENHANCED: Configure the enhanced lantern controller with advanced features
     /// </summary>
-    private void SetFloatingLanternPlayer(FloatingLantern floatingLantern, Transform player)
+    private void ConfigureEnhancedLanternController(EnhancedLanternController controller, GameObject player, GameObject floatingLantern)
     {
-        try
+        if (_debugMode)
         {
-            var playerField = typeof(FloatingLantern).GetField("_player",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (playerField != null)
-            {
-                playerField.SetValue(floatingLantern, player);
-                if (_debugMode)
-                {
-                    Debug.Log($"✓ Set FloatingLantern player reference to: {player.name}");
-                }
-            }
-            else
-            {
-                Debug.LogWarning("⚠️ Could not find _player field in FloatingLantern");
-            }
+            Debug.Log($"🔧 Configuring Enhanced Lantern Controller");
+            Debug.Log($"  Controller Enabled: {controller.enabled}");
+            Debug.Log($"  Current HasLantern: {controller.HasLantern}");
         }
-        catch (System.Exception e)
+
+        // Enable controller if disabled
+        if (!controller.enabled)
         {
-            Debug.LogError($"❌ Error setting FloatingLantern player reference: {e.Message}");
+            controller.enabled = true;
+            if (_debugMode)
+                Debug.Log("✓ Enabled EnhancedLanternController");
         }
+
+        // Wait one frame then acquire lantern
+        StartCoroutine(DelayedLanternAcquisition(controller, player, floatingLantern));
     }
 
     private IEnumerator DelayedLanternAcquisition(EnhancedLanternController controller, GameObject player, GameObject floatingLantern)
@@ -340,107 +395,201 @@ public class CollectibleLantern : MonoBehaviour
             Debug.Log("🔦 === ATTEMPTING LANTERN ACQUISITION ===");
             Debug.Log($"Controller Valid: {controller != null}");
             Debug.Log($"Controller Enabled: {controller.enabled}");
-            Debug.Log($"Current HasLantern Before: {controller.HasLantern}");
         }
 
-        // Acquire lantern
         try
         {
+            // Acquire the lantern
             controller.AcquireLantern();
 
             if (_debugMode)
             {
-                Debug.Log($"✓ AcquireLantern() called");
-                Debug.Log($"Current HasLantern After: {controller.HasLantern}");
+                Debug.Log($"✓ AcquireLantern() called successfully");
+                Debug.Log($"  HasLantern after acquisition: {controller.HasLantern}");
+            }
+
+            // Grant advanced light effects if enabled
+            if (_enableAdvancedFeatures)
+            {
+                GrantAdvancedFeatures(controller, player);
+            }
+
+            // Initialize progression system
+            var progression = player.GetComponent<DualProgressionSystem>();
+            if (progression != null)
+            {
+                progression.Initialize(controller);
+
+                // Grant initial abilities
+                foreach (string abilityId in _grantsAbilities)
+                {
+                    progression.DiscoverAbility(abilityId);
+                }
+
+                if (_debugMode)
+                    Debug.Log("✓ DualProgressionSystem initialized and abilities granted");
+            }
+            else
+            {
+                Debug.LogWarning("⚠️ DualProgressionSystem not found on player!");
             }
         }
         catch (System.Exception e)
         {
-            Debug.LogError($"❌ Error calling AcquireLantern(): {e.Message}");
+            Debug.LogError($"❌ Error during lantern acquisition: {e.Message}");
             Debug.LogError($"Stack trace: {e.StackTrace}");
         }
+    }
 
-        // Initialize progression system
-        var progression = player.GetComponent<DualProgressionSystem>();
-        if (progression != null)
-        {
-            try
-            {
-                progression.Initialize(controller);
-
-                if (_debugMode)
-                {
-                    Debug.Log("✓ DualProgressionSystem initialized");
-                }
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"❌ Error initializing DualProgressionSystem: {e.Message}");
-            }
-        }
-        else
-        {
-            Debug.LogWarning("⚠️ DualProgressionSystem not found on player!");
-        }
-
-        // Final status check
+    /// <summary>
+    /// NEW: Grant advanced light effects when lantern is collected
+    /// </summary>
+    private void GrantAdvancedFeatures(EnhancedLanternController controller, GameObject player)
+    {
         if (_debugMode)
+            Debug.Log($"🌟 Granting {_grantsLightEffects.Length} advanced light effects");
+
+        // The controller automatically has access to all effects
+        // This is where you could restrict certain effects until later discovery
+
+        // For now, all effects are available immediately
+        // Future: Could implement effect discovery system here
+    }
+
+    /// <summary>
+    /// Safe method to set FloatingLantern player reference
+    /// </summary>
+    private void SetFloatingLanternPlayer(FloatingLantern floatingLantern, Transform player)
+    {
+        try
         {
-            Debug.Log("🔦 === LANTERN ACQUISITION COMPLETE ===");
-            Debug.Log($"Final HasLantern: {controller.HasLantern}");
-            Debug.Log($"Final Light Type: {controller.CurrentLightType}");
-            Debug.Log($"Floating Lantern Created: {floatingLantern != null}");
-            Debug.Log("✨ ANCIENT LANTERN ACQUIRED! Press F to activate.");
+            // Use reflection to set the private _player field
+            var playerField = typeof(FloatingLantern).GetField("_player",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (playerField != null)
+            {
+                playerField.SetValue(floatingLantern, player);
+                if (_debugMode)
+                    Debug.Log($"✓ Set FloatingLantern player reference to: {player.name}");
+            }
+            else
+            {
+                Debug.LogWarning("⚠️ Could not find _player field in FloatingLantern");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"❌ Error setting FloatingLantern player reference: {e.Message}");
         }
     }
 
-    private void PlayPickupEffects()
+    #endregion
+
+    #region Visual and Audio Effects
+
+    private void PlayCollectionEffects()
     {
-        // Play sound
+        if (_debugMode)
+            Debug.Log("✨ Playing collection effects");
+
+        // Play pickup sound
         if (_pickupSound != null && _audioSource != null)
         {
+            _audioSource.Stop(); // Stop humming
+            _audioSource.loop = false;
+            _audioSource.volume = 1f;
             _audioSource.PlayOneShot(_pickupSound);
-            if (_debugMode)
-            {
-                Debug.Log("🔊 Pickup sound played");
-            }
         }
 
-        // Play particle effect
-        if (_pickupEffect != null)
+        // Play collection particles
+        if (_collectionEffect != null)
         {
-            _pickupEffect.Play();
-            if (_debugMode)
-            {
-                Debug.Log("✨ Pickup particles played");
-            }
+            _collectionEffect.Play();
         }
+
+        // Stop ambient effects
+        if (_ambientEffect != null)
+        {
+            _ambientEffect.Stop();
+        }
+
+        // Fade out lights
+        StartCoroutine(FadeOutLights());
     }
 
-    private void OnDrawGizmosSelected()
+    private IEnumerator FadeOutLights()
     {
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(transform.position, 1f);
+        float fadeTime = 1f;
+        float elapsed = 0f;
 
-        // Show float range
-        Gizmos.color = Color.cyan;
-        Vector3 topPos = _startPosition + Vector3.up * _floatHeight;
-        Vector3 bottomPos = _startPosition - Vector3.up * _floatHeight;
-        Gizmos.DrawLine(topPos, bottomPos);
+        float startIntensity2D = _collectibleLight2D != null ? _collectibleLight2D.intensity : 0f;
+        float startIntensity3D = _glowLight != null ? _glowLight.intensity : 0f;
 
-        // Show trigger area
-        var collider = GetComponent<Collider2D>();
-        if (collider != null)
+        while (elapsed < fadeTime)
         {
-            Gizmos.color = Color.green;
-            if (collider is BoxCollider2D box)
+            elapsed += Time.deltaTime;
+            float alpha = 1f - (elapsed / fadeTime);
+
+            if (_collectibleLight2D != null)
+                _collectibleLight2D.intensity = startIntensity2D * alpha;
+
+            if (_glowLight != null)
+                _glowLight.intensity = startIntensity3D * alpha;
+
+            yield return null;
+        }
+
+        // Ensure lights are off
+        if (_collectibleLight2D != null)
+            _collectibleLight2D.enabled = false;
+
+        if (_glowLight != null)
+            _glowLight.enabled = false;
+    }
+
+    #endregion
+
+    #region Debug Methods
+
+    [ContextMenu("Test Collection")]
+    public void TestCollection()
+    {
+        if (Application.isPlaying && !_collected)
+        {
+            // Find player for testing
+            var player = FindObjectOfType<EnhancedLanternController>();
+            if (player != null)
             {
-                Gizmos.DrawWireCube(transform.position, box.size);
+                CollectLantern(player.gameObject);
             }
-            else if (collider is CircleCollider2D circle)
+            else
             {
-                Gizmos.DrawWireSphere(transform.position, circle.radius);
+                Debug.LogWarning("No EnhancedLanternController found for testing");
             }
         }
     }
+
+    [ContextMenu("Show Lantern Info")]
+    public void ShowLanternInfo()
+    {
+        Debug.Log($"=== COLLECTABLE LANTERN INFO ===");
+        Debug.Log($"Position: {transform.position}");
+        Debug.Log($"Collected: {_collected}");
+        Debug.Log($"Advanced Features: {_enableAdvancedFeatures}");
+        Debug.Log($"Grants Light Effects: {_grantsLightEffects.Length}");
+        Debug.Log($"Grants Abilities: {_grantsAbilities.Length}");
+
+        foreach (var effect in _grantsLightEffects)
+        {
+            Debug.Log($"  - Light Effect: {effect}");
+        }
+
+        foreach (var ability in _grantsAbilities)
+        {
+            Debug.Log($"  - Ability: {ability}");
+        }
+    }
+
+    #endregion
 }

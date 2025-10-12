@@ -1,116 +1,167 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 /// <summary>
-/// Completely fixed ILightInteractable interface and components
+/// NEW INTERFACE: Enhanced light interaction system supporting 9 different light effects
+/// Replaces simple OnLightEnter/Exit with sophisticated effect-based interactions
+/// 
+/// MIGRATION NOTE: All your existing light-interactive objects need to implement this interface
 /// </summary>
 public interface ILightInteractable
 {
-    void OnIlluminated(EnhancedLanternController lantern);
-    void OnLeftLight(EnhancedLanternController lantern);
-    bool IsIlluminated { get; }
-    bool RespondsToLightType(EnhancedLanternController.LightType lightType);
+    /// <summary>
+    /// Called when light first touches this object
+    /// </summary>
+    /// <param name="effect">Type of light effect (Reveal, Energize, Stun, etc.)</param>
+    /// <param name="intensity">Light intensity (0-2+, varies by effect)</param>
+    /// <param name="direction">Direction the light is coming from</param>
+    void OnLightEnter(EnhancedLanternController.LightEffect effect, float intensity, Vector2 direction);
+
+    /// <summary>
+    /// Called continuously while light is affecting this object
+    /// </summary>
+    /// <param name="effect">Type of light effect</param>
+    /// <param name="intensity">Light intensity</param>
+    /// <param name="direction">Direction the light is coming from</param>
+    /// <param name="deltaTime">Time since last update</param>
+    void OnLightStay(EnhancedLanternController.LightEffect effect, float intensity, Vector2 direction, float deltaTime);
+
+    /// <summary>
+    /// Called when light stops affecting this object
+    /// </summary>
+    /// <param name="effect">Type of light effect that ended</param>
+    void OnLightExit(EnhancedLanternController.LightEffect effect);
+
+    /// <summary>
+    /// Check if this object responds to a specific light effect
+    /// </summary>
+    /// <param name="effect">Effect to check</param>
+    /// <returns>True if this object responds to the effect</returns>
+    bool RespondsToEffect(EnhancedLanternController.LightEffect effect);
+
+    /// <summary>
+    /// Get the minimum intensity required for this effect to work
+    /// </summary>
+    /// <param name="effect">Effect to check</param>
+    /// <returns>Minimum intensity needed (0-1+)</returns>
+    float GetMinimumIntensity(EnhancedLanternController.LightEffect effect);
+
+    /// <summary>
+    /// Current state for UI and gameplay feedback
+    /// </summary>
+    bool IsCurrentlyIlluminated { get; }
+
+    /// <summary>
+    /// Currently active light effect (if any)
+    /// </summary>
+    EnhancedLanternController.LightEffect CurrentActiveEffect { get; }
 }
 
 /// <summary>
-/// FIXED: Light Essence pickup - currency for passive upgrades
+/// MIGRATION HELPER: Base class that provides default implementations
+/// Use this for easy migration of existing light-interactive objects
 /// </summary>
-[RequireComponent(typeof(Collider2D))]
-public class LightEssencePickup : MonoBehaviour
+public abstract class LightInteractableBase : MonoBehaviour, ILightInteractable
 {
-    [Header("Essence Configuration")]
-    [SerializeField] private int _essenceValue = 5;
-    [SerializeField] private EssenceType _essenceType = EssenceType.Standard;
+    [Header("Light Interaction Settings")]
+    [SerializeField] protected EnhancedLanternController.LightEffect[] _acceptedEffects = { EnhancedLanternController.LightEffect.Reveal };
+    [SerializeField] protected float _minimumIntensity = 0.5f;
+    [SerializeField] protected bool _debugMode = true;
 
-    [Header("Visual Design")]
-    [SerializeField] private SpriteRenderer _essenceSprite;
-    [SerializeField] private ParticleSystem _glitterEffect;
-    [SerializeField] private Light _essenceLight;
+    public bool IsCurrentlyIlluminated { get; protected set; }
+    public EnhancedLanternController.LightEffect CurrentActiveEffect { get; protected set; }
 
-    [Header("Animation")]
-    [SerializeField] private float _floatHeight = 0.2f;
-    [SerializeField] private float _floatSpeed = 3f;
-    [SerializeField] private float _rotationSpeed = 90f;
+    /// <summary>
+    /// Override this to handle light entering (replaces old OnLightEnter)
+    /// </summary>
+    protected abstract void HandleLightEnter(EnhancedLanternController.LightEffect effect, float intensity, Vector2 direction);
 
-    public enum EssenceType
+    /// <summary>
+    /// Override this to handle continuous light (new functionality)
+    /// </summary>
+    protected virtual void HandleLightStay(EnhancedLanternController.LightEffect effect, float intensity, Vector2 direction, float deltaTime)
     {
-        Standard,   // 1-5 essence
-        Greater,    // 10-15 essence  
-        Major,      // 20-25 essence
-        Legendary   // 50+ essence
+        // Default: do nothing during continuous light
     }
 
-    private Vector3 _startPosition;
-    private AudioSource _audioSource;
+    /// <summary>
+    /// Override this to handle light leaving (replaces old OnLightExit)
+    /// </summary>
+    protected abstract void HandleLightExit(EnhancedLanternController.LightEffect effect);
 
-    private void Awake()
+    #region ILightInteractable Implementation
+
+    public virtual void OnLightEnter(EnhancedLanternController.LightEffect effect, float intensity, Vector2 direction)
     {
-        _startPosition = transform.position;
-        _audioSource = GetComponent<AudioSource>();
-
-        GetComponent<Collider2D>().isTrigger = true;
-        SetupVisualsByType();
-    }
-
-    private void SetupVisualsByType()
-    {
-        Color essenceColor = _essenceType switch
+        if (!RespondsToEffect(effect) || intensity < GetMinimumIntensity(effect))
         {
-            EssenceType.Standard => new Color(0.6f, 0.9f, 1f),   // Light blue
-            EssenceType.Greater => new Color(0.9f, 0.6f, 1f),    // Purple
-            EssenceType.Major => new Color(1f, 0.8f, 0.3f),      // Gold
-            EssenceType.Legendary => new Color(1f, 0.3f, 0.3f),  // Red
-            _ => Color.white
-        };
-
-        if (_essenceSprite != null)
-            _essenceSprite.color = essenceColor;
-
-        if (_essenceLight != null)
-        {
-            _essenceLight.color = essenceColor;
-            _essenceLight.intensity = 0.5f + (int)_essenceType * 0.3f;
+            if (_debugMode)
+                Debug.Log($"{name} ignoring {effect} (intensity: {intensity:F2})");
+            return;
         }
 
-        if (_glitterEffect != null)
+        IsCurrentlyIlluminated = true;
+        CurrentActiveEffect = effect;
+
+        HandleLightEnter(effect, intensity, direction);
+
+        if (_debugMode)
+            Debug.Log($"💡 {name} illuminated with {effect} (intensity: {intensity:F2})");
+    }
+
+    public virtual void OnLightStay(EnhancedLanternController.LightEffect effect, float intensity, Vector2 direction, float deltaTime)
+    {
+        if (!IsCurrentlyIlluminated || CurrentActiveEffect != effect) return;
+
+        HandleLightStay(effect, intensity, direction, deltaTime);
+    }
+
+    public virtual void OnLightExit(EnhancedLanternController.LightEffect effect)
+    {
+        if (!IsCurrentlyIlluminated || CurrentActiveEffect != effect) return;
+
+        IsCurrentlyIlluminated = false;
+        CurrentActiveEffect = EnhancedLanternController.LightEffect.Reveal; // Reset to default
+
+        HandleLightExit(effect);
+
+        if (_debugMode)
+            Debug.Log($"🌑 {name} left light ({effect})");
+    }
+
+    public virtual bool RespondsToEffect(EnhancedLanternController.LightEffect effect)
+    {
+        foreach (var acceptedEffect in _acceptedEffects)
         {
-            var main = _glitterEffect.main;
-            main.startColor = essenceColor;
+            if (acceptedEffect == effect)
+                return true;
         }
+        return false;
     }
 
-    private void Update()
+    public virtual float GetMinimumIntensity(EnhancedLanternController.LightEffect effect)
     {
-        AnimateEssence();
+        return _minimumIntensity;
     }
 
-    private void AnimateEssence()
+    #endregion
+
+    #region LEGACY SUPPORT METHODS
+
+    /// <summary>
+    /// LEGACY SUPPORT: Call this from your existing OnLightEnter() methods
+    /// </summary>
+    protected void CallLegacyOnLightEnter()
     {
-        // Float
-        float newY = _startPosition.y + Mathf.Sin(Time.time * _floatSpeed) * _floatHeight;
-        transform.position = new Vector3(_startPosition.x, newY, _startPosition.z);
-
-        // Rotate
-        transform.Rotate(Vector3.forward * _rotationSpeed * Time.deltaTime);
+        OnLightEnter(EnhancedLanternController.LightEffect.Reveal, 1f, Vector2.zero);
     }
 
-    private void OnTriggerEnter2D(Collider2D other)
+    /// <summary>
+    /// LEGACY SUPPORT: Call this from your existing OnLightExit() methods
+    /// </summary>
+    protected void CallLegacyOnLightExit()
     {
-        if (!other.CompareTag("Player")) return;
-
-        // FIXED: Use DualProgressionSystem instead of non-existent CurrencyManager
-        var progressionSystem = other.GetComponent<DualProgressionSystem>();
-        if (progressionSystem != null)
-        {
-            progressionSystem.AddLightEssence(_essenceValue);
-
-            // Play collection effect
-            if (_audioSource != null)
-            {
-                _audioSource.Play();
-            }
-
-            Debug.Log($"Collected {_essenceValue} Light Essence!");
-            Destroy(gameObject, 0.1f);
-        }
+        OnLightExit(EnhancedLanternController.LightEffect.Reveal);
     }
+
+    #endregion
 }

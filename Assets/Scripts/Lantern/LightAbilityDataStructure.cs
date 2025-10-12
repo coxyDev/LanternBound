@@ -1,8 +1,8 @@
 using UnityEngine;
-using System.Collections;
 
 /// <summary>
-/// Data structure for active light abilities that players discover in the world
+/// Data structure for active abilities in the dual progression system
+/// Used by DualProgressionSystem for ability management
 /// </summary>
 [System.Serializable]
 public class LightAbility
@@ -10,73 +10,65 @@ public class LightAbility
     [Header("Basic Info")]
     public string AbilityId;
     public string DisplayName;
-    [TextArea(2, 4)]
+    [TextArea(2, 3)]
     public string Description;
     public Sprite AbilityIcon;
 
     [Header("Classification")]
     public AbilityCategory AbilityType;
     public UnlockType UnlockMethod;
-    public string[] Prerequisites = new string[0];
 
     [Header("Resource Costs")]
     public float ManaCost = 20f;
     public float Cooldown = 5f;
 
-    [Header("Effect Values")]
+    [Header("Effect Properties")]
     public float BaseDamage = 0f;
-    public float Range = 5f;
-    public float Duration = 0f;
+    public float Range = 8f;
+    public float Duration = 2f;
     public float AreaOfEffect = 0f;
 
+    [Header("Unlock Requirements")]
+    public string[] Prerequisites = new string[0];
+    public int RequiredLightEssence = 0;
+    public string RequiredWorldArea = "";
+
     [Header("Visual & Audio")]
-    public GameObject EffectPrefab;
-    public AudioClip ActivationSound;
     public Color EffectColor = Color.white;
-    public ParticleSystem ParticleEffect;
-
-    [Header("Animation")]
-    public string AnimationTrigger;
-    public float AnimationDuration = 1f;
-
-    [Header("Advanced Properties")]
-    public bool RequiresTarget = false;
-    public bool RequiresGrounded = false;
-    public bool CanUseWhileMoving = true;
-    public bool InterruptsMovement = false;
-
-    // Runtime state
-    [System.NonSerialized]
-    private float _lastUsedTime = -999f;
-    [System.NonSerialized]
-    private bool _isActive = false;
+    public ParticleSystem ActivationEffect;
+    public AudioClip ActivationSound;
+    public AudioClip ChannelingSound;
 
     public enum AbilityCategory
     {
-        Combat,     // Direct damage abilities
-        Mobility,   // Movement and traversal
-        Utility,    // Puzzle solving and environment interaction
-        Defensive   // Protection and crowd control
+        Combat,     // Direct damage/interaction abilities
+        Mobility,   // Movement and traversal abilities  
+        Utility,    // Puzzle-solving and world interaction
+        Defensive,  // Protection and evasion abilities
+        Special     // Unique story/progression abilities
     }
 
     public enum UnlockType
     {
-        WorldDiscovery,    // Found as collectible in world
-        ShrineReward,      // Granted by shrine activation
-        BossDefeat,        // Unlocked after defeating boss
-        QuestCompletion,   // Unlocked through story progression
-        SecretArea         // Hidden in secret areas
+        WorldDiscovery,    // Found as collectibles in world
+        EssencePurchase,   // Bought with light essence
+        StoryProgression,  // Unlocked through main quest
+        SecretUnlock,      // Hidden/special requirements
+        UpgradeEvolution   // Evolved from other abilities
     }
 
+    // Runtime state (not serialized)
+    private float _lastUsedTime = -999f;
+
     /// <summary>
-    /// Check if ability is currently on cooldown
+    /// Check if ability is ready to use (not on cooldown)
     /// </summary>
-    public bool IsOnCooldown => Time.time - _lastUsedTime < Cooldown;
+    public bool IsReady => Time.time >= (_lastUsedTime + Cooldown);
 
     /// <summary>
     /// Get remaining cooldown time
     /// </summary>
-    public float RemainingCooldown => Mathf.Max(0f, Cooldown - (Time.time - _lastUsedTime));
+    public float CooldownRemaining => Mathf.Max(0f, (Cooldown - (Time.time - _lastUsedTime)));
 
     /// <summary>
     /// Get cooldown progress (0 = ready, 1 = just used)
@@ -154,93 +146,96 @@ public class PassiveUpgrade
     [Header("Classification")]
     public UpgradeType Type;
     public UpgradeCategory Category;
-    public int Tier = 1; // 1 = basic, 2 = advanced, 3 = master
+    public int Tier = 1;
 
-    [Header("Cost and Prerequisites")]
-    public int EssenceCost = 10;
+    [Header("Cost & Effect")]
+    public int Cost = 10;
+    public float EffectValue = 0.1f; // 10% improvement by default
+    public int MaxLevel = 1;
+    public int CurrentLevel = 0;
+
+    [Header("Requirements")]
     public string[] Prerequisites = new string[0];
+    public int RequiredPlayerLevel = 0;
 
-    [Header("Effect")]
-    public float ModifierValue = 0.1f; // Usually percentage as decimal
-    public bool IsPercentage = true;
-
-    [Header("UI Presentation")]
-    public Vector2 SkillTreePosition = Vector2.zero;
-    public Color NodeColor = Color.white;
+    [Header("Visual")]
+    public Color UpgradeColor = Color.cyan;
+    public ParticleSystem PurchaseEffect;
 
     public enum UpgradeType
     {
-        // Resource Management
-        ManaEfficiency,      // Reduce ability mana costs
-        ManaRegeneration,    // Increase mana regeneration rate
-        MaxMana,             // Increase maximum mana pool
+        // Efficiency upgrades
+        ManaEfficiency,     // Reduces mana costs
+        CooldownReduction,  // Reduces ability cooldowns
+        MovementSpeed,      // Increases player movement speed
 
-        // Ability Enhancement
-        AbilityDamage,       // Increase all ability damage
-        AbilityRange,        // Increase all ability range
-        AbilityDuration,     // Increase all ability duration
-        CooldownReduction,   // Reduce all ability cooldowns
-        AreaOfEffect,        // Increase AOE ability size
+        // Power upgrades  
+        AbilityDamage,      // Increases ability damage
+        AbilityRange,       // Increases ability range
+        AbilityDuration,    // Increases ability duration
 
-        // Movement and Survival
-        MovementSpeed,       // Increase player movement speed
-        JumpHeight,          // Increase jump height
-        DashDistance,        // Increase dash distance
-        HealthRegeneration,  // Health recovery rate
-        DamageReduction,     // Reduce incoming damage
+        // Utility upgrades
+        ManaRegeneration,   // Faster mana recovery
+        LightIntensity,     // Brighter, more effective light
+        LightRange,         // Longer light beam range
 
-        // Light System
-        LightIntensity,      // Brighter lantern light
-        LightRange,          // Longer lantern range
-        LightPenetration,    // Light goes through more barriers
-
-        // Special
-        EssenceGain,         // Gain more essence from sources
-        AbilityChainChance,  // Chance for abilities to not consume mana
-        CriticalChance,      // Chance for abilities to deal extra damage
-        StatusResistance     // Resistance to debuffs
+        // Special upgrades
+        EssenceGain,        // More essence from enemies/sources
+        AbilityChain,       // Abilities can chain between targets
+        ReflectionMastery   // Better light reflection mechanics
     }
 
     public enum UpgradeCategory
     {
-        Core,           // Universal upgrades everyone will want
-        Combat,         // Focused on damage and combat effectiveness
-        Exploration,    // Movement and world interaction
-        Resource,       // Mana and essence management
-        Specialized     // Niche upgrades for specific builds
+        Efficiency,    // Resource management improvements
+        Power,         // Direct effectiveness improvements
+        Utility,       // Quality of life and convenience
+        Mastery,       // Advanced technique improvements
+        Special        // Unique mechanical changes
     }
 
     /// <summary>
-    /// Check if all prerequisites are met for this upgrade
+    /// Check if this upgrade can be purchased
     /// </summary>
-    public bool ArePrerequisitesMet(DualProgressionSystem progression)
+    public bool CanPurchase(DualProgressionSystem progression)
     {
+        // Check cost
+        if (progression.GetLightEssence() < Cost)
+            return false;
+
+        // Check level
+        if (CurrentLevel >= MaxLevel)
+            return false;
+
+        // Check prerequisites
         foreach (string prereqId in Prerequisites)
         {
-            if (!progression.HasUpgrade(prereqId))
+            var prereq = progression.GetUpgrade(prereqId);
+            if (prereq == null || prereq.CurrentLevel < prereq.MaxLevel)
                 return false;
         }
+
         return true;
     }
 
     /// <summary>
-    /// Get formatted description with actual values
+    /// Get the total effect value based on current level
     /// </summary>
-    public string GetFormattedDescription()
+    public float GetTotalEffectValue()
     {
-        string formattedDesc = Description;
+        return EffectValue * CurrentLevel;
+    }
 
-        if (IsPercentage)
-        {
-            string percentageStr = (ModifierValue * 100f).ToString("F0") + "%";
-            formattedDesc = formattedDesc.Replace("{value}", percentageStr);
-        }
-        else
-        {
-            formattedDesc = formattedDesc.Replace("{value}", ModifierValue.ToString("F1"));
-        }
+    /// <summary>
+    /// Get the cost for the next level
+    /// </summary>
+    public int GetNextLevelCost()
+    {
+        if (CurrentLevel >= MaxLevel)
+            return int.MaxValue;
 
-        return formattedDesc;
+        // Cost increases with each level
+        return Mathf.RoundToInt(Cost * Mathf.Pow(1.5f, CurrentLevel));
     }
 }
 
@@ -254,22 +249,16 @@ public class LightAbilityData : ScriptableObject
 
     private void OnValidate()
     {
-        // Auto-generate ID from name if empty
-        if (string.IsNullOrEmpty(AbilityData.AbilityId))
+        // Auto-set AbilityId based on asset name
+        if (AbilityData != null && string.IsNullOrEmpty(AbilityData.AbilityId))
         {
             AbilityData.AbilityId = name.ToLower().Replace(" ", "_");
-        }
-
-        // Auto-generate display name from asset name if empty
-        if (string.IsNullOrEmpty(AbilityData.DisplayName))
-        {
-            AbilityData.DisplayName = name;
         }
     }
 }
 
 /// <summary>
-/// ScriptableObject for creating passive upgrade data assets
+/// ScriptableObject for creating upgrade data assets
 /// </summary>
 [CreateAssetMenu(fileName = "New Passive Upgrade", menuName = "LanternBound/Passive Upgrade")]
 public class PassiveUpgradeData : ScriptableObject
@@ -278,265 +267,110 @@ public class PassiveUpgradeData : ScriptableObject
 
     private void OnValidate()
     {
-        // Auto-generate ID from name if empty
-        if (string.IsNullOrEmpty(UpgradeData.UpgradeId))
+        // Auto-set UpgradeId based on asset name
+        if (UpgradeData != null && string.IsNullOrEmpty(UpgradeData.UpgradeId))
         {
             UpgradeData.UpgradeId = name.ToLower().Replace(" ", "_");
         }
-
-        // Auto-generate display name from asset name if empty
-        if (string.IsNullOrEmpty(UpgradeData.DisplayName))
-        {
-            UpgradeData.DisplayName = name;
-        }
     }
 }
 
 /// <summary>
-/// Collectible object that grants active abilities when discovered
+/// Helper class for ability/upgrade management
 /// </summary>
-[RequireComponent(typeof(Collider2D))]
-public class LightAbilityCollectible : MonoBehaviour
+public static class ProgressionDataHelper
 {
-    [Header("Ability to Grant")]
-    [SerializeField] private string _abilityId;
-    [SerializeField] private LightAbilityData _abilityData;
-
-    [Header("Discovery Effects")]
-    [SerializeField] private GameObject _discoveryEffect;
-    [SerializeField] private AudioClip _discoverySound;
-    [SerializeField] private ParticleSystem _ambientEffect;
-    [SerializeField] private Light _glowLight;
-
-    [Header("Visual Representation")]
-    [SerializeField] private SpriteRenderer _abilityIcon;
-    [SerializeField] private float _floatHeight = 0.3f;
-    [SerializeField] private float _floatSpeed = 2f;
-    [SerializeField] private float _rotationSpeed = 30f;
-
-    private Vector3 _startPosition;
-    private bool _discovered = false;
-    private AudioSource _audioSource;
-
-    public static System.Action<string> OnAbilityDiscovered;
-
-    private void Awake()
+    /// <summary>
+    /// Create a standard combat ability
+    /// </summary>
+    public static LightAbility CreateCombatAbility(string id, string name, string description, float manaCost, float cooldown, float damage, float range)
     {
-        _startPosition = transform.position;
-        _audioSource = GetComponent<AudioSource>();
-
-        // Setup collider as trigger
-        GetComponent<Collider2D>().isTrigger = true;
-
-        // Setup visual effects
-        if (_abilityData != null)
+        return new LightAbility
         {
-            _abilityId = _abilityData.AbilityData.AbilityId;
-
-            if (_abilityIcon != null && _abilityData.AbilityData.AbilityIcon != null)
-            {
-                _abilityIcon.sprite = _abilityData.AbilityData.AbilityIcon;
-            }
-
-            if (_glowLight != null)
-            {
-                _glowLight.color = _abilityData.AbilityData.EffectColor;
-            }
-        }
-    }
-
-    private void Update()
-    {
-        if (!_discovered)
-        {
-            AnimateCollectible();
-        }
-    }
-
-    private void AnimateCollectible()
-    {
-        // Floating animation
-        float newY = _startPosition.y + Mathf.Sin(Time.time * _floatSpeed) * _floatHeight;
-        transform.position = new Vector3(_startPosition.x, newY, _startPosition.z);
-
-        // Rotation animation
-        transform.Rotate(Vector3.forward * _rotationSpeed * Time.deltaTime);
-
-        // Pulsing glow
-        if (_glowLight != null)
-        {
-            float pulseIntensity = 1f + Mathf.Sin(Time.time * _floatSpeed * 1.5f) * 0.3f;
-            _glowLight.intensity = pulseIntensity;
-        }
-    }
-
-    private void OnTriggerEnter2D(Collider2D other)
-    {
-        if (_discovered || !other.CompareTag("Player")) return;
-
-        DiscoverAbility(other.gameObject);
-    }
-
-    private void DiscoverAbility(GameObject player)
-    {
-        _discovered = true;
-
-        // Find progression system and grant ability
-        var progression = player.GetComponent<DualProgressionSystem>();
-        if (progression != null)
-        {
-            progression.DiscoverAbility(_abilityId);
-        }
-
-        // Play effects
-        PlayDiscoveryEffects();
-
-        // Notify other systems
-        OnAbilityDiscovered?.Invoke(_abilityId);
-
-        // Destroy collectible
-        Destroy(gameObject, 1f);
-    }
-
-    private void PlayDiscoveryEffects()
-    {
-        // Play discovery sound
-        if (_audioSource != null && _discoverySound != null)
-        {
-            _audioSource.PlayOneShot(_discoverySound);
-        }
-
-        // Spawn discovery effect
-        if (_discoveryEffect != null)
-        {
-            Instantiate(_discoveryEffect, transform.position, Quaternion.identity);
-        }
-
-        // Burst ambient particles
-        if (_ambientEffect != null)
-        {
-            var emission = _ambientEffect.emission;
-            emission.SetBursts(new ParticleSystem.Burst[]
-            {
-                new ParticleSystem.Burst(0f, 20)
-            });
-            _ambientEffect.Play();
-        }
-    }
-
-    private void OnDrawGizmosSelected()
-    {
-        Gizmos.color = Color.cyan;
-        Gizmos.DrawWireSphere(transform.position, 1f);
-
-        if (_abilityData != null)
-        {
-            Gizmos.color = _abilityData.AbilityData.EffectColor;
-            Gizmos.DrawIcon(transform.position, "LightAbility", true);
-        }
-    }
-}
-
-/// <summary>
-/// Input handler for triggering active abilities
-/// </summary>
-public class LightAbilityInputHandler : MonoBehaviour
-{
-    [Header("Input Bindings")]
-    [SerializeField] private KeyCode _ability1Key = KeyCode.Q;
-    [SerializeField] private KeyCode _ability2Key = KeyCode.E;
-    [SerializeField] private KeyCode _ability3Key = KeyCode.R;
-    [SerializeField] private KeyCode _ability4Key = KeyCode.T;
-
-    [Header("Quick Slot Abilities")]
-    [SerializeField] private string[] _quickSlotAbilities = new string[4];
-
-    private DualProgressionSystem _progression;
-
-    private void Awake()
-    {
-        _progression = GetComponent<DualProgressionSystem>();
-    }
-
-    private void Update()
-    {
-        HandleAbilityInput();
-    }
-
-    private void HandleAbilityInput()
-    {
-        if (_progression == null) return;
-
-        // Check ability keys
-        if (Input.GetKeyDown(_ability1Key) && !string.IsNullOrEmpty(_quickSlotAbilities[0]))
-        {
-            _progression.UseAbility(_quickSlotAbilities[0]);
-        }
-
-        if (Input.GetKeyDown(_ability2Key) && !string.IsNullOrEmpty(_quickSlotAbilities[1]))
-        {
-            _progression.UseAbility(_quickSlotAbilities[1]);
-        }
-
-        if (Input.GetKeyDown(_ability3Key) && !string.IsNullOrEmpty(_quickSlotAbilities[2]))
-        {
-            _progression.UseAbility(_quickSlotAbilities[2]);
-        }
-
-        if (Input.GetKeyDown(_ability4Key) && !string.IsNullOrEmpty(_quickSlotAbilities[3]))
-        {
-            _progression.UseAbility(_quickSlotAbilities[3]);
-        }
-
-        // Mouse buttons for primary abilities
-        if (Input.GetMouseButtonDown(0)) // Left click
-        {
-            // Try to use primary combat ability
-            TryUsePrimaryAbility(LightAbility.AbilityCategory.Combat);
-        }
-
-        if (Input.GetMouseButtonDown(1)) // Right click
-        {
-            // Try to use primary utility ability
-            TryUsePrimaryAbility(LightAbility.AbilityCategory.Utility);
-        }
-    }
-
-    private void TryUsePrimaryAbility(LightAbility.AbilityCategory category)
-    {
-        var abilities = _progression.GetDiscoveredAbilities();
-
-        // Find first ability of the specified category
-        foreach (var ability in abilities)
-        {
-            if (ability.AbilityType == category)
-            {
-                _progression.UseAbility(ability.AbilityId);
-                break;
-            }
-        }
+            AbilityId = id,
+            DisplayName = name,
+            Description = description,
+            AbilityType = LightAbility.AbilityCategory.Combat,
+            UnlockMethod = LightAbility.UnlockType.WorldDiscovery,
+            ManaCost = manaCost,
+            Cooldown = cooldown,
+            BaseDamage = damage,
+            Range = range,
+            Duration = 0.5f,
+            Prerequisites = new string[0]
+        };
     }
 
     /// <summary>
-    /// Assign an ability to a quick slot
+    /// Create a standard utility ability
     /// </summary>
-    public void SetQuickSlotAbility(int slotIndex, string abilityId)
+    public static LightAbility CreateUtilityAbility(string id, string name, string description, float manaCost, float cooldown, float range, float duration)
     {
-        if (slotIndex >= 0 && slotIndex < _quickSlotAbilities.Length)
+        return new LightAbility
         {
-            _quickSlotAbilities[slotIndex] = abilityId;
-        }
+            AbilityId = id,
+            DisplayName = name,
+            Description = description,
+            AbilityType = LightAbility.AbilityCategory.Utility,
+            UnlockMethod = LightAbility.UnlockType.WorldDiscovery,
+            ManaCost = manaCost,
+            Cooldown = cooldown,
+            BaseDamage = 0f,
+            Range = range,
+            Duration = duration,
+            Prerequisites = new string[0]
+        };
     }
 
     /// <summary>
-    /// Get the ability assigned to a quick slot
+    /// Create a standard passive upgrade
     /// </summary>
-    public string GetQuickSlotAbility(int slotIndex)
+    public static PassiveUpgrade CreatePassiveUpgrade(string id, string name, string description, PassiveUpgrade.UpgradeType type, PassiveUpgrade.UpgradeCategory category, int cost, float effectValue)
     {
-        if (slotIndex >= 0 && slotIndex < _quickSlotAbilities.Length)
+        return new PassiveUpgrade
         {
-            return _quickSlotAbilities[slotIndex];
-        }
-        return null;
+            UpgradeId = id,
+            DisplayName = name,
+            Description = description,
+            Type = type,
+            Category = category,
+            Cost = cost,
+            EffectValue = effectValue,
+            MaxLevel = 1,
+            CurrentLevel = 0,
+            Prerequisites = new string[0]
+        };
+    }
+
+    /// <summary>
+    /// Get ability category color for UI
+    /// </summary>
+    public static Color GetAbilityCategoryColor(LightAbility.AbilityCategory category)
+    {
+        return category switch
+        {
+            LightAbility.AbilityCategory.Combat => new Color(1f, 0.3f, 0.3f),     // Red
+            LightAbility.AbilityCategory.Mobility => new Color(0.3f, 1f, 0.3f),   // Green  
+            LightAbility.AbilityCategory.Utility => new Color(0.3f, 0.3f, 1f),    // Blue
+            LightAbility.AbilityCategory.Defensive => new Color(1f, 1f, 0.3f),    // Yellow
+            LightAbility.AbilityCategory.Special => new Color(1f, 0.3f, 1f),      // Magenta
+            _ => Color.white
+        };
+    }
+
+    /// <summary>
+    /// Get upgrade category color for UI
+    /// </summary>
+    public static Color GetUpgradeCategoryColor(PassiveUpgrade.UpgradeCategory category)
+    {
+        return category switch
+        {
+            PassiveUpgrade.UpgradeCategory.Efficiency => new Color(0.3f, 1f, 1f), // Cyan
+            PassiveUpgrade.UpgradeCategory.Power => new Color(1f, 0.5f, 0.3f),    // Orange
+            PassiveUpgrade.UpgradeCategory.Utility => new Color(0.7f, 1f, 0.3f),  // Light Green
+            PassiveUpgrade.UpgradeCategory.Mastery => new Color(1f, 1f, 0.7f),    // Light Yellow
+            PassiveUpgrade.UpgradeCategory.Special => new Color(1f, 0.7f, 1f),    // Light Magenta
+            _ => Color.white
+        };
     }
 }

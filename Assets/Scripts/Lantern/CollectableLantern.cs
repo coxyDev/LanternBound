@@ -331,17 +331,33 @@ public class CollectableLantern : MonoBehaviour
 
     private GameObject SpawnFloatingLantern(GameObject player)
     {
+        // FIXED: Check if a FloatingLantern already exists
+        FloatingLantern existingLantern = player.GetComponentInChildren<FloatingLantern>();
+
+        if (existingLantern != null)
+        {
+            if (_debugMode)
+                Debug.Log($"⚠️ FloatingLantern already exists on player: {existingLantern.name}. Using existing.");
+
+            // Set player reference and activate existing lantern
+            SetFloatingLanternPlayer(existingLantern, player.transform);
+            existingLantern.SetLanternActive(true);
+
+            return existingLantern.gameObject;
+        }
+
         GameObject floatingLantern = null;
 
         if (_floatingLanternPrefab != null)
         {
             // Spawn from prefab
-            floatingLantern = Instantiate(_floatingLanternPrefab);
+            floatingLantern = Instantiate(_floatingLanternPrefab, player.transform);
 
             var floatingComponent = floatingLantern.GetComponent<FloatingLantern>();
             if (floatingComponent != null)
             {
                 SetFloatingLanternPlayer(floatingComponent, player.transform);
+                floatingComponent.SetLanternActive(true);
             }
 
             if (_debugMode)
@@ -351,8 +367,12 @@ public class CollectableLantern : MonoBehaviour
         {
             // Create floating lantern procedurally
             floatingLantern = new GameObject("FloatingLantern");
+            floatingLantern.transform.SetParent(player.transform);
+            floatingLantern.transform.localPosition = new Vector3(-0.8f, 0.7f, 0f); // Behind and above
+
             var floatingComponent = floatingLantern.AddComponent<FloatingLantern>();
             SetFloatingLanternPlayer(floatingComponent, player.transform);
+            floatingComponent.SetLanternActive(true);
 
             if (_debugMode)
                 Debug.Log($"✓ Created floating lantern procedurally: {floatingLantern.name}");

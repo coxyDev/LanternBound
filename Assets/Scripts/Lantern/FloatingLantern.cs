@@ -10,7 +10,7 @@ public class FloatingLantern : MonoBehaviour
 {
     [Header("Lantern Positioning")]
     [SerializeField] private Transform _player;
-    [SerializeField] private Vector3 _offsetFromPlayer = new Vector3(1.5f, 0.8f, 0f);
+    [SerializeField] private Vector3 _offsetFromPlayer = new Vector3(-1.2f, 0.8f, 0f);
     [SerializeField] private float _followSpeed = 8f;
     [SerializeField] private bool _smoothRotation = true;
     [SerializeField] private float _rotationSpeed = 5f;

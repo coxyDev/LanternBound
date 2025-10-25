@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -547,16 +547,42 @@ public class PlayerMovement : MonoBehaviour
 
         VerticalVelocity = MoveStats.InitialWallJumpVelocity;
 
+        // FIXED: Determine jump direction based on player facing and input
         int dirMultiplier = 0;
+
+        // Get current input direction
+        Vector2 moveInput = InputManager.Movement;
+
+        // Determine which side the wall is on
         Vector2 hitPoint = _lastWallHit.collider.ClosestPoint(_bodyColl.bounds.center);
+        bool wallIsOnRight = hitPoint.x > transform.position.x;
 
-        if(hitPoint.x > transform.position.x)
+        // IMPROVED LOGIC:
+        // If player is pressing away from the wall, jump away
+        // If player is pressing toward the wall or no input, jump away from wall (default behavior)
+        // This makes climbing feel natural - press into wall to climb, press away to jump off
+
+        if (moveInput.x > 0.1f) // Pressing right
         {
-            dirMultiplier = -1;
+            dirMultiplier = 1; // Jump right
         }
-        else { dirMultiplier = 1; }
+        else if (moveInput.x < -0.1f) // Pressing left
+        {
+            dirMultiplier = -1; // Jump left
+        }
+        else
+        {
+            // No horizontal input - jump away from wall (default behavior)
+            dirMultiplier = wallIsOnRight ? -1 : 1;
+        }
 
+        // Apply the jump direction
         HorizontalVelocity = Mathf.Abs(MoveStats.WallJumpDirection.x) * dirMultiplier;
+
+        if (MoveStats.DebugShowWallHitBox)
+        {
+            Debug.Log($"🏃 Wall Jump: Direction={dirMultiplier}, WallOnRight={wallIsOnRight}, Input={moveInput.x:F2}");
+        }
     }
 
     private void WallJump()

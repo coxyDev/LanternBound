@@ -1,179 +1,145 @@
 ﻿using UnityEngine;
-using UnityEngine.Rendering.Universal;
 
 /// <summary>
-/// CORRECTED VERSION: Fixed to match current ILightInteractable interface
-/// This version uses OnLightEnter/Stay/Exit instead of the old OnIlluminated/OnLeftLight
+/// INTERFACE-CORRECTED VERSION: Matches actual ILightInteractable interface
+/// Properly implements OnLightEnter/Stay/Exit with correct signatures
 /// </summary>
 [RequireComponent(typeof(SpriteRenderer))]
-[RequireComponent(typeof(BoxCollider2D))]
+[RequireComponent(typeof(Collider2D))]
 public class EnhancedRevealablePlatform : MonoBehaviour, ILightInteractable
 {
-    [Header("Visual States")]
-    [SerializeField] private Color _hiddenColor = new Color(1, 1, 1, 0.1f);
-    [SerializeField] private Color _visibleColor = Color.white;
+    [Header("Visibility Settings")]
+    [SerializeField] private bool _startHidden = true;
+    [SerializeField] private float _revealThreshold = 0.3f;
+    [SerializeField] private float _fadeSpeed = 2f;
 
-    [Header("Layer Management - CRITICAL FOR GROUND DETECTION")]
-    [SerializeField] private bool _changeLayerWhenRevealed = true;
-    [Tooltip("Set this to 'Ground' (Layer 3) so isGrounded works")]
-    [SerializeField] private string _groundLayerName = "Ground";
-    [Tooltip("Current layer name - usually 'PuzzleNodes' (Layer 6)")]
-    [SerializeField] private string _hiddenLayerName = "PuzzleNodes";
+    [Header("Visual Settings")]
+    [SerializeField] private Color _hiddenColor = new Color(1f, 1f, 1f, 0f);
+    [SerializeField] private Color _revealedColor = new Color(1f, 1f, 1f, 1f);
+    [SerializeField] private Color _illuminatedColor = new Color(1f, 1f, 0.8f, 1f);
 
-    [Header("Light Response Settings")]
+    [Header("Collision Settings")]
+    [SerializeField] private bool _disableCollisionWhenHidden = true;
+
+    [Header("Light Response")]
     [SerializeField]
     private EnhancedLanternController.LightEffect[] _acceptedEffects =
         { EnhancedLanternController.LightEffect.Reveal };
     [SerializeField] private float _minimumIntensity = 0.3f;
 
-    [Header("2D Lighting")]
-    [SerializeField] private Light2D _platformLight2D;
-    [SerializeField] private float _lightIntensity = 0.8f;
-
     [Header("Debug")]
     [SerializeField] private bool _debugMode = true;
 
     // Components
-    private SpriteRenderer _renderer;
-    private BoxCollider2D _collider;
-    private int _originalLayer;
-    private int _groundLayer;
+    private SpriteRenderer _spriteRenderer;
+    private Collider2D _collider;
 
-    // ILightInteractable Properties
+    // State
+    private bool _isRevealed = false;
+    private Color _targetColor;
+
+    // ILightInteractable Properties (REQUIRED BY INTERFACE)
     public bool IsCurrentlyIlluminated { get; private set; }
     public EnhancedLanternController.LightEffect CurrentActiveEffect { get; private set; }
 
     private void Awake()
     {
-        _renderer = GetComponent<SpriteRenderer>();
-        _collider = GetComponent<BoxCollider2D>();
+        _spriteRenderer = GetComponent<SpriteRenderer>();
+        _collider = GetComponent<Collider2D>();
 
-        // Get layer indices
-        _originalLayer = LayerMask.NameToLayer(_hiddenLayerName);
-        _groundLayer = LayerMask.NameToLayer(_groundLayerName);
-
-        // Validate layers exist
-        if (_originalLayer == -1)
+        // Set initial state
+        if (_startHidden)
         {
-            Debug.LogError($"❌ Layer '{_hiddenLayerName}' not found! Create it in Unity's Layer settings.");
-            _originalLayer = 6; // Fallback to layer 6
+            SetHiddenState(true);  // This MUST disable collider
         }
-
-        if (_groundLayer == -1)
+        else
         {
-            Debug.LogError($"❌ Layer '{_groundLayerName}' not found! Using Layer 3 as fallback.");
-            _groundLayer = 3; // Fallback to layer 3
-        }
-
-        // Setup platform light if exists
-        if (_platformLight2D != null)
-        {
-            _platformLight2D.enabled = false;
-        }
-
-        // Start hidden
-        SetHidden();
-
-        if (_debugMode)
-        {
-            Debug.Log($"✓ EnhancedRevealablePlatform initialized: {gameObject.name}");
-            Debug.Log($"  Original Layer: {_hiddenLayerName} (Index: {_originalLayer})");
-            Debug.Log($"  Ground Layer: {_groundLayerName} (Index: {_groundLayer})");
-            Debug.Log($"  Change Layer When Revealed: {_changeLayerWhenRevealed}");
+            SetRevealedState(true);
         }
     }
 
-    #region ILightInteractable Implementation - NEW INTERFACE
+    private void Update()
+    {
+        // Smooth color transition
+        Color current = _spriteRenderer.color;
+        _spriteRenderer.color = Color.Lerp(current, _targetColor, Time.deltaTime * _fadeSpeed);
+    }
 
-    /// <summary>
-    /// FIXED: Matches current ILightInteractable interface
-    /// </summary>
+    #region ILightInteractable Implementation (CORRECT SIGNATURES)
+
     public void OnLightEnter(EnhancedLanternController.LightEffect effect, float intensity, Vector2 direction)
     {
-        if (_debugMode)
-        {
-            Debug.Log($"💡 {gameObject.name} - OnLightEnter called");
-            Debug.Log($"   Effect: {effect}, Intensity: {intensity:F2}");
-        }
+        Debug.Log($"🔦 LIGHT HIT: {gameObject.name}");
 
-        // Check if we respond to this effect
-        if (!RespondsToEffect(effect))
-        {
-            if (_debugMode)
-                Debug.Log($"⚠️ {gameObject.name} doesn't respond to {effect}");
+        if (!RespondsToEffect(effect) || intensity < GetMinimumIntensity(effect))
             return;
-        }
 
-        // Check intensity threshold
-        if (intensity < GetMinimumIntensity(effect))
-        {
-            if (_debugMode)
-                Debug.Log($"⚠️ {gameObject.name} intensity too low: {intensity:F2} < {_minimumIntensity}");
-            return;
-        }
-
-        // Reveal the platform
         IsCurrentlyIlluminated = true;
         CurrentActiveEffect = effect;
-        SetVisible();
 
         if (_debugMode)
+            Debug.Log($"💡 Platform illuminated | Effect: {effect} | Intensity: {intensity:F2}");
+
+        // Check if intensity is above threshold to reveal
+        if (intensity >= _revealThreshold && !_isRevealed)
         {
-            Debug.Log($"✅ {gameObject.name} REVEALED!");
-            Debug.Log($"   Collider Enabled: {_collider.enabled}");
-            Debug.Log($"   Layer: {LayerMask.LayerToName(gameObject.layer)} (Index: {gameObject.layer})");
+            RevealPlatform();
+        }
+
+        // Update color based on illumination
+        if (_isRevealed)
+        {
+            _targetColor = Color.Lerp(_revealedColor, _illuminatedColor, intensity);
         }
     }
 
-    /// <summary>
-    /// FIXED: Continuous light effect handling
-    /// </summary>
     public void OnLightStay(EnhancedLanternController.LightEffect effect, float intensity, Vector2 direction, float deltaTime)
     {
-        // Optional: Could add pulsing or other continuous effects here
-        // For now, just maintain visibility
+        if (!IsCurrentlyIlluminated || CurrentActiveEffect != effect)
+            return;
+
+        // Maintain revealed state while lit
+        if (intensity >= _revealThreshold)
+        {
+            _targetColor = Color.Lerp(_revealedColor, _illuminatedColor, intensity);
+        }
     }
 
-    /// <summary>
-    /// FIXED: Matches current ILightInteractable interface
-    /// </summary>
     public void OnLightExit(EnhancedLanternController.LightEffect effect)
     {
-        if (_debugMode)
-        {
-            Debug.Log($"🌑 {gameObject.name} - OnLightExit called");
-            Debug.Log($"   Effect: {effect}");
-        }
+        if (!IsCurrentlyIlluminated || CurrentActiveEffect != effect)
+            return;
 
-        // Hide the platform
+        if (_debugMode)
+            Debug.Log($"🌑 Platform left light | Effect: {effect}");
+
         IsCurrentlyIlluminated = false;
         CurrentActiveEffect = EnhancedLanternController.LightEffect.Reveal;
-        SetHidden();
 
-        if (_debugMode)
+        // Hide platform when light is removed
+        if (_isRevealed)
         {
-            Debug.Log($"✅ {gameObject.name} HIDDEN!");
-            Debug.Log($"   Collider Enabled: {_collider.enabled}");
-            Debug.Log($"   Layer: {LayerMask.LayerToName(gameObject.layer)} (Index: {gameObject.layer})");
+            HidePlatform();
         }
     }
 
-    /// <summary>
-    /// Check if this platform responds to the given effect
-    /// </summary>
     public bool RespondsToEffect(EnhancedLanternController.LightEffect effect)
     {
+        Debug.Log($"═══ RespondsToEffect Check ═══");
+        Debug.Log($"Platform: {gameObject.name}");
+        Debug.Log($"Effect being checked: {effect}");
+        Debug.Log($"Accepted effects: {string.Join(", ", _acceptedEffects)}");
+
         foreach (var acceptedEffect in _acceptedEffects)
         {
             if (acceptedEffect == effect)
                 return true;
         }
+       
+        Debug.Log($"✗ NO MATCH! Platform does not accept {effect}");
         return false;
     }
 
-    /// <summary>
-    /// Get minimum intensity required
-    /// </summary>
     public float GetMinimumIntensity(EnhancedLanternController.LightEffect effect)
     {
         return _minimumIntensity;
@@ -181,92 +147,100 @@ public class EnhancedRevealablePlatform : MonoBehaviour, ILightInteractable
 
     #endregion
 
-    #region Visual State Management
+    #region Reveal/Hide Logic
 
-    private void SetVisible()
+    private void RevealPlatform()
     {
-        if (_renderer != null)
-            _renderer.color = _visibleColor;
+        if (_isRevealed) return;
 
-        if (_collider != null)
+        _isRevealed = true;
+        _targetColor = _revealedColor;
+
+        // Enable collision
+        if (_disableCollisionWhenHidden && _collider != null)
+        {
             _collider.enabled = true;
-
-        if (_platformLight2D != null)
-        {
-            _platformLight2D.enabled = true;
-            _platformLight2D.intensity = _lightIntensity;
         }
 
-        // CRITICAL: Change to Ground layer so isGrounded detection works
-        if (_changeLayerWhenRevealed)
-        {
-            gameObject.layer = _groundLayer;
-
-            if (_debugMode)
-                Debug.Log($"🔄 Platform {gameObject.name} switched to Ground layer ({_groundLayer})");
-        }
+        if (_debugMode)
+            Debug.Log($"✨ Platform REVEALED: {gameObject.name}");
     }
 
-    private void SetHidden()
+    private void HidePlatform()
     {
-        if (_renderer != null)
-            _renderer.color = _hiddenColor;
+        if (!_isRevealed) return;
 
-        if (_collider != null)
+        _isRevealed = false;
+        _targetColor = _hiddenColor;
+
+        // Disable collision
+        if (_disableCollisionWhenHidden && _collider != null)
+        {
             _collider.enabled = false;
-
-        if (_platformLight2D != null)
-        {
-            _platformLight2D.enabled = false;
         }
 
-        // Change back to original layer
-        if (_changeLayerWhenRevealed)
+        if (_debugMode)
+            Debug.Log($"🌑 Platform HIDDEN: {gameObject.name}");
+    }
+
+    private void SetHiddenState(bool immediate)
+    {
+        _isRevealed = false;
+        IsCurrentlyIlluminated = false;
+
+        if (immediate)
         {
-            gameObject.layer = _originalLayer;
-
-            if (_debugMode)
-                Debug.Log($"🔄 Platform {gameObject.name} switched to {_hiddenLayerName} layer ({_originalLayer})");
+            _spriteRenderer.color = _hiddenColor;
         }
+
+        _targetColor = _hiddenColor;
+
+        if (_disableCollisionWhenHidden && _collider != null)
+        {
+            _collider.enabled = false;
+        }
+
+        if (_debugMode)
+            Debug.Log($"🌑 Platform initialized as HIDDEN: {gameObject.name}");
     }
 
-    #endregion
-
-    #region Inspector Validation
-
-    private void OnValidate()
+    private void SetRevealedState(bool immediate)
     {
-        // Auto-find components in editor
-        if (_renderer == null)
-            _renderer = GetComponent<SpriteRenderer>();
+        _isRevealed = true;
 
-        if (_collider == null)
-            _collider = GetComponent<BoxCollider2D>();
+        if (immediate)
+        {
+            _spriteRenderer.color = _revealedColor;
+        }
 
-        if (_platformLight2D == null)
-            _platformLight2D = GetComponentInChildren<Light2D>();
-    }
-
-    #endregion
-
-    #region Debug Visualization
-
-    private void OnDrawGizmosSelected()
-    {
-        if (!_debugMode) return;
-
-        // Draw a wireframe box showing platform bounds
-        Gizmos.color = IsCurrentlyIlluminated ? Color.green : Color.red;
+        _targetColor = _revealedColor;
 
         if (_collider != null)
         {
-            Gizmos.DrawWireCube(_collider.bounds.center, _collider.bounds.size);
+            _collider.enabled = true;
         }
-        else
-        {
-            Gizmos.DrawWireCube(transform.position, Vector3.one);
-        }
+
+        if (_debugMode)
+            Debug.Log($"✨ Platform initialized as REVEALED: {gameObject.name}");
     }
+
+    #endregion
+
+    #region Public API
+
+    public void ForceReveal()
+    {
+        IsCurrentlyIlluminated = true;
+        RevealPlatform();
+    }
+
+    public void ForceHide()
+    {
+        IsCurrentlyIlluminated = false;
+        HidePlatform();
+    }
+
+    public bool IsRevealed => _isRevealed;
 
     #endregion
 }

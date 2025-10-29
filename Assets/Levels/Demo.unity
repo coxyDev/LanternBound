@@ -335,23 +335,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bba16e3300fa2a54aa5f1da17ba1a2f7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _collected: 0
-  _enableAdvancedFeatures: 1
-  _debugMode: 1
+  _discoveryRadius: 3
+  _playerLayer:
+    serializedVersion: 2
+    m_Bits: 512
+  _glowEffect: {fileID: 0}
+  _pickupParticles: {fileID: 0}
+  _pickupLight: {fileID: 0}
+  _pickupSound: {fileID: 0}
   _floatHeight: 0.3
   _floatSpeed: 2
   _rotationSpeed: 30
-  _collectibleLight2D: {fileID: 0}
-  _glowLight: {fileID: 0}
-  _ambientEffect: {fileID: 0}
-  _collectionEffect: {fileID: 0}
   _floatingLanternPrefab: {fileID: 8003871892164241849, guid: 8a8b88881dfa5264b953631f05096a77, type: 3}
-  _pickupSound: {fileID: 0}
-  _mysticalHum: {fileID: 0}
-  _audioSource: {fileID: 0}
-  _grantsLightEffects: 0000000001000000
-  _grantsAbilities:
-  - solar_flare
+  _debugMode: 1
 --- !u!58 &152050366
 CircleCollider2D:
   m_ObjectHideFlags: 0
@@ -414,9 +410,8 @@ GameObject:
   m_Component:
   - component: {fileID: 169592653}
   - component: {fileID: 169592655}
-  - component: {fileID: 169592654}
-  - component: {fileID: 169592656}
   - component: {fileID: 169592657}
+  - component: {fileID: 169592658}
   m_Layer: 6
   m_Name: Hidden Platform
   m_TagString: Untagged
@@ -439,52 +434,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1623758447}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!61 &169592654
-BoxCollider2D:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 169592652}
-  m_Enabled: 1
-  serializedVersion: 3
-  m_Density: 1
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_ForceSendLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_ForceReceiveLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_ContactCaptureLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_CallbackLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_IsTrigger: 1
-  m_UsedByEffector: 0
-  m_CompositeOperation: 0
-  m_CompositeOrder: 0
-  m_Offset: {x: 0, y: 0}
-  m_SpriteTilingProperty:
-    border: {x: 0, y: 0, z: 0, w: 0}
-    pivot: {x: 0.5, y: 0.5}
-    oldSize: {x: 1, y: 1}
-    newSize: {x: 1, y: 1}
-    adaptiveTilingThreshold: 0.5
-    drawMode: 0
-    adaptiveTiling: 0
-  m_AutoTiling: 0
-  m_Size: {x: 1, y: 1}
-  m_EdgeRadius: 0
 --- !u!212 &169592655
 SpriteRenderer:
   m_ObjectHideFlags: 0
@@ -543,18 +492,6 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
---- !u!114 &169592656
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 169592652}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 585b6484f9a28154c836e9d683c06a73, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!61 &169592657
 BoxCollider2D:
   m_ObjectHideFlags: 0
@@ -562,7 +499,7 @@ BoxCollider2D:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 169592652}
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 3
   m_Density: 1
   m_Material: {fileID: 0}
@@ -601,6 +538,28 @@ BoxCollider2D:
   m_AutoTiling: 0
   m_Size: {x: 1, y: 1}
   m_EdgeRadius: 0
+--- !u!114 &169592658
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 169592652}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0b2f4ddfc99d9fd46b9d3b12e80e1988, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::EnhancedRevealablePlatform
+  _startHidden: 1
+  _revealThreshold: 0.3
+  _fadeSpeed: 2
+  _hiddenColor: {r: 1, g: 1, b: 1, a: 0}
+  _revealedColor: {r: 1, g: 1, b: 1, a: 1}
+  _illuminatedColor: {r: 1, g: 1, b: 0.8, a: 1}
+  _disableCollisionWhenHidden: 1
+  _acceptedEffects: 00000000
+  _minimumIntensity: 0.3
+  _debugMode: 1
 --- !u!1 &301735374
 GameObject:
   m_ObjectHideFlags: 0
@@ -2159,7 +2118,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 49733104709870240, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_Layer
-      value: 0
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 49733104709870240, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_TagString
@@ -2167,7 +2126,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1251452549077659382, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_Layer
-      value: 0
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 1251452549077659382, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_TagString
@@ -2179,7 +2138,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1279933993960355500, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_Layer
-      value: 0
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 1279933993960355500, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_TagString
@@ -2259,7 +2218,7 @@ PrefabInstance:
       objectReference: {fileID: 2100000, guid: 9b831612a9341804db6edfe97f7a5b07, type: 2}
     - target: {fileID: 2453834074972172433, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_Layer
-      value: 0
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 2453834074972172433, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_TagString
@@ -2267,7 +2226,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4111132414833605024, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_Layer
-      value: 0
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 4111132414833605024, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_TagString
@@ -2288,6 +2247,10 @@ PrefabInstance:
     - target: {fileID: 4664276719515523611, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: _innerLightOuterRadius
       value: 2.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 4664276719515523611, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
+      propertyPath: _interactionLayers.m_Bits
+      value: 64
       objectReference: {fileID: 0}
     - target: {fileID: 6052360236230015302, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_MaskInteraction
@@ -2319,7 +2282,7 @@ PrefabInstance:
       objectReference: {fileID: 2100000, guid: 9b831612a9341804db6edfe97f7a5b07, type: 2}
     - target: {fileID: 7021229952034393581, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_Layer
-      value: 0
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 7021229952034393581, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_TagString
@@ -2351,7 +2314,7 @@ PrefabInstance:
       objectReference: {fileID: 2100000, guid: 9b831612a9341804db6edfe97f7a5b07, type: 2}
     - target: {fileID: 7460216532570129344, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_Layer
-      value: 0
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 7460216532570129344, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_TagString
@@ -2359,7 +2322,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7674501557516558280, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_Layer
-      value: 0
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 7674501557516558280, guid: 5739e94ecf9f6264ab74f74914b7d591, type: 3}
       propertyPath: m_TagString
@@ -2913,7 +2876,7 @@ MonoBehaviour:
   _baseBondedIntensity: 1.5
   _maxBondedIntensity: 2
   _baseBondedRadius: 2
-  _maxBondedRadius: 3.5
+  _maxBondedRadius: 3
   _bondedGlowColor: {r: 1, g: 0.95, b: 0.8, a: 0.7}
   _abilityUsageWeight: 0.4
   _abilityDiscoveryWeight: 0.3
@@ -2924,7 +2887,7 @@ MonoBehaviour:
   _minimumBondStrength: 0.2
   _enablePulsing: 1
   _pulseSpeed: 1.2
-  _pulseStrength: 1
+  _pulseStrength: 0.4
   _showBondingEffect: 1
   _auraLight2D: {fileID: 0}
   _playerRenderer: {fileID: 0}

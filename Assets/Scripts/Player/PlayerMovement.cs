@@ -15,7 +15,7 @@ public class PlayerMovement : MonoBehaviour
 
     //movement vars
     public float HorizontalVelocity { get; private set; }
-    private bool _isFacingRight;
+    public bool _isFacingRight;
 
     //Collision Check Vars
     private RaycastHit2D _groundHit;
@@ -875,15 +875,23 @@ public class PlayerMovement : MonoBehaviour
 
     private void BumpedHead()
     {
-        Vector2 boxCastOrigin = new Vector2(_feetColl.bounds.center.x, _bodyColl.bounds.max.y);
+        Vector2 boxCastOrigin = new Vector2(_bodyColl.bounds.center.x, _bodyColl.bounds.max.y);
         Vector2 boxCastSize = new Vector2(_feetColl.bounds.size.x * MoveStats.HeadWidth, MoveStats.HeadDetectionRayLength);
 
-        _headHit = Physics2D.BoxCast(boxCastOrigin, boxCastSize, 0f, Vector2.up, MoveStats.HeadDetectionRayLength, MoveStats.GroundLayer);
-        if (_headHit.collider != null)
+        // Use RaycastAll to filter triggers
+        RaycastHit2D[] hits = Physics2D.BoxCastAll(boxCastOrigin, boxCastSize, 0f, Vector2.up, MoveStats.HeadDetectionRayLength, MoveStats.GroundLayer);
+
+        _bumpedHead = false;
+        foreach (var hit in hits)
         {
-            _bumpedHead = true;
+            // Only count non-trigger colliders
+            if (hit.collider != null && !hit.collider.isTrigger)
+            {
+                _headHit = hit;
+                _bumpedHead = true;
+                break;
+            }
         }
-        else { _bumpedHead = false; }
 
         #region Debug Visualisation
 
@@ -920,17 +928,25 @@ public class PlayerMovement : MonoBehaviour
         Vector2 boxCastOrigin = new Vector2(originEndPoint, _bodyColl.bounds.center.y);
         Vector2 boxCastSize = new Vector2(MoveStats.WallDetectionRayLength, adjustedHeight);
 
-        _wallHit = Physics2D.BoxCast(boxCastOrigin, boxCastSize, 0f, transform.right, MoveStats.WallDetectionRayLength, MoveStats.GroundLayer);
-        if(_wallHit.collider != null)
+        // FIXED: Use BoxCastAll and filter out triggers
+        RaycastHit2D[] hits = Physics2D.BoxCastAll(boxCastOrigin, boxCastSize, 0f, transform.right, MoveStats.WallDetectionRayLength, MoveStats.GroundLayer);
+
+        _isTouchingWall = false;
+        foreach (var hit in hits)
         {
-            _lastWallHit = _wallHit;
-            _isTouchingWall = true;
+            // Only count non-trigger colliders
+            if (hit.collider != null && !hit.collider.isTrigger)
+            {
+                _wallHit = hit;
+                _lastWallHit = hit;
+                _isTouchingWall = true;
+                break;
+            }
         }
-        else { _isTouchingWall = false; }
 
-        #region Debug Visualisation
+            #region Debug Visualisation
 
-        if (MoveStats.DebugShowWallHitBox)
+            if (MoveStats.DebugShowWallHitBox)
         {
             Color rayColor;
             if (_isTouchingWall)

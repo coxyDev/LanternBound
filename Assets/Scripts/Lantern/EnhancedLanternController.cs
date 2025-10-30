@@ -1,116 +1,135 @@
 ﻿using UnityEngine;
-using UnityEngine.Rendering.Universal;
-using System.Collections.Generic;
 using System.Collections;
+using System.Collections.Generic;
 
 /// <summary>
-/// MIGRATION VERSION: Enhanced LanternController that preserves your existing interface
-/// while adding the new advanced light effects system
-/// 
-/// COMPATIBILITY: Maintains all existing public methods and properties
-/// NEW FEATURES: 9-effect light system, reflection mechanics, performance optimization
+/// Enhanced Lantern Controller with DIRECTIONAL BEAM implementation
+/// Beam projects forward based on player facing direction, not full 360° mouse control
+/// This creates intentional, tactical gameplay where player must position and face correctly
 /// </summary>
+[RequireComponent(typeof(Rigidbody2D))]
 public class EnhancedLanternController : MonoBehaviour
 {
-    [Header("Compatibility Settings")]
-    [SerializeField] private bool _enableAdvancedFeatures = true;
-    [SerializeField] private bool _maintainLegacyInterface = true;
-    [SerializeField] private bool _debugMode = true;
+    #region Serialized Fields
+
+    [Header("DIRECTIONAL BEAM SETTINGS")]
+    [Tooltip("If true, beam projects forward from player facing direction. If false, uses full mouse control (legacy).")]
+    [SerializeField] private bool _beamFollowsPlayerFacing = true;
+
+    [Tooltip("Maximum angle (degrees) the mouse can adjust beam from player facing direction. 45° = moderate freedom, 30° = strict, 60° = forgiving")]
+    [SerializeField] private float _mouseAimingConeAngle = 45f;
+
+    [Tooltip("Show debug rays for beam direction")]
+    [SerializeField] private bool _debugBeamDirection = true;
 
     [Header("Basic Lantern Properties")]
     [SerializeField] private float _baseMana = 100f;
-    [SerializeField] private float _manaRegenRate = 5f;
+    [SerializeField] private float _manaRegenRate = 10f;
     [SerializeField] private float _baseRange = 10f;
-    [SerializeField] private float _beamWidth = 30f;
-    [SerializeField] private LayerMask _interactionLayers = -1;
+    [SerializeField] private float _beamWidth = 15f; // Cone angle for detection
 
-    [Header("Light Effects System")]
-    [SerializeField] private LightEffect _currentLightEffect = LightEffect.Reveal;
+    [Header("Interaction Settings")]
+    [SerializeField] private LayerMask _interactionLayers = ~0; // Everything by default
+    [SerializeField] private int _maxReflectionBounces = 2;
+    [SerializeField] private bool _enableReflection = false;
+
+    [Header("Light Effects")]
     [SerializeField] private LightEffectData[] _availableEffects;
-    [SerializeField] private float _effectIntensity = 1f;
-    [SerializeField] private bool _enableReflection = true;
-    [SerializeField] private int _maxReflectionBounces = 3;
 
     [Header("Visual Components")]
-    [SerializeField] private Light2D _playerInnerLight2D;
     [SerializeField] private LineRenderer _beamRenderer;
+    [SerializeField] private Light _playerInnerLight2D;
     [SerializeField] private ParticleSystem _lightParticles;
 
-    [Header("Legacy Compatibility")]
-    [SerializeField] private LightType _currentLightType = LightType.Ember;
-    [SerializeField] private List<LightType> _discoveredLightTypes = new List<LightType>();
+    [Header("Debug")]
+    [SerializeField] private bool _debugMode = true;
+    [SerializeField] private bool _debugLanternPosition = false;
 
-    // PRESERVED LEGACY INTERFACE
-    public enum LightType
-    {
-        Ember,
-        Radiance,
-        SolarFlare,
-        MoonBeam,
-        Starlight,
-        PrismaticLight,
-        VoidLight
-    }
+    #endregion
 
-    // NEW ADVANCED INTERFACE
-    public enum LightEffect
-    {
-        Reveal,     // Basic illumination
-        Energize,   // Power nodes/mechanisms
-        Refract,    // Bounce off prisms
-        Purify,     // Clear corruption/shadows
-        Slow,       // Temporal effects
-        Stun,       // Disable enemies
-        Shield,     // Protective barriers
-        Decoy,      // Phantom projections
-        Stealth     // Concealment/phase
-    }
+    #region Light Effect System
 
     [System.Serializable]
     public class LightEffectData
     {
         public LightEffect effectType;
         public string displayName;
-        public string description;
-        public Color effectColor = Color.white;
         public float baseIntensity = 1f;
         public float baseRange = 10f;
-        public float baseWidth = 30f;
+        public float baseWidth = 15f;
+        public Color effectColor = Color.white;
+        public float activationCost = 0f;
+        public float continuousCost = 5f; // Mana per second
         public bool requiresContinuousLight = true;
         public bool canPierceObjects = false;
         public bool canBounceOffSurfaces = false;
-        public float manaCostPerSecond = 2f;
-        public float activationCost = 0f;
-        public AudioClip activationSound;
-        public ParticleSystem effectParticles;
     }
 
-    // PRESERVED LEGACY PROPERTIES
+    public enum LightEffect
+    {
+        Reveal,      // Basic light - reveals hidden objects
+        Energize,    // Powers mechanical objects
+        Stun,        // Temporarily disables enemies
+        Purify,      // Cleanses corruption
+        Slow,        // Slows time/movement in area
+        Refract,     // Bounces off surfaces
+        Shield,      // Creates protective barrier
+        Decoy,       // Creates false light source
+        Stealth      // Inverts light (creates darkness)
+    }
+
+    public enum LightType
+    {
+        Ember,           // Tutorial/basic light
+        Radiance,        // Upgraded reveal
+        SolarFlare,      // Area stun
+        PrismaticLight,  // Refraction specialist
+        Starlight,       // Purification
+        MoonBeam,        // Shield
+        VoidLight        // Stealth
+    }
+
+    #endregion
+
+    #region Properties
+
     public bool HasLantern { get; private set; }
     public bool IsLanternActive { get; private set; }
-    public LightType CurrentLightType => _currentLightType;
+    public float CurrentMana => _currentMana;
+    public float MaxMana => _baseMana;
     public float ManaPercentage => _currentMana / _baseMana;
-    public float HorizontalVelocity { get; private set; } // For animation compatibility
-    public float VerticalVelocity { get; private set; } // For animation compatibility
-
-    // NEW ADVANCED PROPERTIES
     public LightEffect CurrentLightEffect => _currentLightEffect;
-    public float CurrentEffectIntensity => _effectIntensity;
-    public bool CanUseAdvancedFeatures => _enableAdvancedFeatures && HasLantern;
+    public bool CanUseAdvancedFeatures => HasLantern;
 
-    // Internal state
+    // Velocity for animation system compatibility
+    public float HorizontalVelocity { get; private set; }
+    public float VerticalVelocity { get; private set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private Rigidbody2D _rb;
+    private PlayerMovement _playerMovement; // For accessing facing direction
+
     private float _currentMana;
-    private bool _isInitialized = false;
+    private LightEffect _currentLightEffect = LightEffect.Reveal;
+    private LightEffectData _currentEffectData;
+    private float _effectIntensity = 1f;
+
     private Dictionary<ILightInteractable, LightEffectInstance> _activeEffects;
     private List<Vector3> _currentLightPath;
-    private Coroutine _manaRegenCoroutine;
-    private LightEffectData _currentEffectData;
 
-    // Components
-    private Rigidbody2D _rb;
-    private FloatingLantern _floatingLantern;
+    // Events
+    public System.Action OnLanternAcquired;
+    public System.Action<LightType> OnLightTypeChanged;
+    public System.Action<ILightInteractable> OnObjectIlluminated;
+    public System.Action<ILightInteractable> OnObjectLeftLight;
 
-    // Active effect tracking
+    #endregion
+
+    #region Light Effect Instance
+
     private class LightEffectInstance
     {
         public ILightInteractable target;
@@ -129,18 +148,14 @@ public class EnhancedLanternController : MonoBehaviour
         }
     }
 
-    // Events for system integration
-    public System.Action OnLanternAcquired;
-    public System.Action<LightType> OnLightTypeChanged;
-    public System.Action<ILightInteractable> OnObjectIlluminated;
-    public System.Action<ILightInteractable> OnObjectLeftLight;
+    #endregion
+
+    #region Unity Lifecycle
 
     private void Awake()
     {
         InitializeComponents();
         SetupDefaultEffects();
-        SetupLegacyCompatibility();
-        ValidateLanternPositioning();
     }
 
     private void Start()
@@ -156,9 +171,7 @@ public class EnhancedLanternController : MonoBehaviour
         UpdateLightDetection();
         UpdateActiveEffects();
         UpdateVisualComponents();
-
-        if (IsLanternActive)
-            UpdateLanternLightPositions();
+        RegenerateMana();
 
         // Update velocity for animation compatibility
         if (_rb != null)
@@ -168,54 +181,42 @@ public class EnhancedLanternController : MonoBehaviour
         }
     }
 
+    #endregion
+
     #region Initialization
 
     private void InitializeComponents()
     {
         _rb = GetComponent<Rigidbody2D>();
+        _playerMovement = GetComponent<PlayerMovement>();
+
         _activeEffects = new Dictionary<ILightInteractable, LightEffectInstance>();
         _currentLightPath = new List<Vector3>();
         _currentMana = _baseMana;
 
-        // Setup light components
-        SetupLightComponents();
+        // Setup visual components
+        SetupBeamRenderer();
 
         if (_debugMode)
-            Debug.Log("✓ Enhanced LanternController components initialized");
+            Debug.Log("✓ Enhanced LanternController initialized (DIRECTIONAL BEAM MODE)");
     }
 
-    private void SetupLightComponents()
+    private void SetupBeamRenderer()
     {
-        // Setup inner light
-        if (_playerInnerLight2D == null)
-        {
-            var lightObj = new GameObject("PlayerInnerLight");
-            lightObj.transform.SetParent(transform);
-            lightObj.transform.localPosition = Vector3.zero;
-            _playerInnerLight2D = lightObj.AddComponent<Light2D>();
-        }
-
-        _playerInnerLight2D.lightType = Light2D.LightType.Point;
-        _playerInnerLight2D.intensity = 0.5f;
-        _playerInnerLight2D.pointLightInnerRadius = 0.1f;
-        _playerInnerLight2D.pointLightOuterRadius = 2f;
-        _playerInnerLight2D.color = new Color(1f, 0.9f, 0.6f);
-        _playerInnerLight2D.enabled = false;
-
-        // Setup beam renderer
         if (_beamRenderer == null)
         {
-            var beamObj = new GameObject("LightBeam");
+            GameObject beamObj = new GameObject("LightBeam");
             beamObj.transform.SetParent(transform);
-            beamObj.transform.localPosition = Vector3.zero;
             _beamRenderer = beamObj.AddComponent<LineRenderer>();
+
+            _beamRenderer.startWidth = 0.1f;
+            _beamRenderer.endWidth = 0.3f;
+            _beamRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            _beamRenderer.startColor = Color.yellow;
+            _beamRenderer.endColor = new Color(1f, 1f, 0f, 0.3f);
+            _beamRenderer.sortingOrder = 10;
         }
 
-        _beamRenderer.material = new Material(Shader.Find("Sprites/Default"));
-        _beamRenderer.startColor = Color.white;
-        _beamRenderer.startWidth = 0.2f;
-        _beamRenderer.endWidth = 0.1f;
-        _beamRenderer.positionCount = 0;
         _beamRenderer.enabled = false;
     }
 
@@ -228,48 +229,13 @@ public class EnhancedLanternController : MonoBehaviour
                 new LightEffectData
                 {
                     effectType = LightEffect.Reveal,
-                    displayName = "Reveal",
-                    description = "Basic illumination that reveals hidden objects",
-                    effectColor = new Color(1f, 0.9f, 0.7f),
+                    displayName = "Ember Light",
                     baseIntensity = 1f,
-                    baseRange = _baseRange,
-                    baseWidth = _beamWidth,
-                    manaCostPerSecond = 1f
-                },
-                new LightEffectData
-                {
-                    effectType = LightEffect.Energize,
-                    displayName = "Energize",
-                    description = "Powers ancient mechanisms",
-                    effectColor = new Color(0.3f, 0.8f, 1f),
-                    baseIntensity = 1.2f,
-                    baseRange = _baseRange * 0.8f,
-                    baseWidth = _beamWidth * 0.8f,
-                    manaCostPerSecond = 2f
-                },
-                new LightEffectData
-                {
-                    effectType = LightEffect.Stun,
-                    displayName = "Solar Flare",
-                    description = "Burst effect for stunning enemies and activating nodes",
-                    effectColor = new Color(1f, 0.8f, 0.2f),
-                    baseIntensity = 2f,
-                    baseRange = 8f,
-                    baseWidth = 60f,
-                    requiresContinuousLight = false,
-                    activationCost = 25f
-                },
-                new LightEffectData
-                {
-                    effectType = LightEffect.Refract,
-                    displayName = "Prism Beam",
-                    description = "Focused beam that bounces off reflective surfaces",
-                    effectColor = new Color(0.8f, 0.4f, 1f),
-                    baseIntensity = 1.5f,
-                    baseRange = _baseRange * 1.2f,
-                    baseWidth = _beamWidth * 0.5f,
-                    canBounceOffSurfaces = true,
-                    manaCostPerSecond = 3f
+                    baseRange = 10f,
+                    baseWidth = 15f,
+                    effectColor = new Color(1f, 0.9f, 0.6f),
+                    continuousCost = 5f,
+                    requiresContinuousLight = true
                 }
             };
         }
@@ -277,228 +243,16 @@ public class EnhancedLanternController : MonoBehaviour
         UpdateCurrentEffectData();
     }
 
-    private void SetupLegacyCompatibility()
-    {
-        // Initialize legacy light types list
-        if (_discoveredLightTypes.Count == 0)
-        {
-            _discoveredLightTypes.Add(LightType.Ember);
-        }
-    }
-
     private void CompleteInitialization()
     {
-        // Find floating lantern if it exists
-        _floatingLantern = FindObjectOfType<FloatingLantern>();
-
-        _isInitialized = true;
-
-        if (_debugMode)
-            Debug.Log("✓ Enhanced LanternController initialization completed");
-    }
-
-    #endregion
-
-    #region Legacy Interface (PRESERVED)
-
-    /// <summary>
-    /// LEGACY METHOD: Maintains compatibility with existing code
-    /// </summary>
-    public void AcquireLantern()
-    {
-        if (HasLantern)
+        if (_debugMode && _beamFollowsPlayerFacing)
         {
-            if (_debugMode)
-                Debug.LogWarning("Player already has lantern!");
-            return;
+            Debug.Log("═══════════════════════════════════");
+            Debug.Log("🎯 DIRECTIONAL BEAM MODE ACTIVE");
+            Debug.Log($"   Mouse Aiming Cone: ±{_mouseAimingConeAngle}°");
+            Debug.Log($"   Player must turn to aim behind");
+            Debug.Log("═══════════════════════════════════");
         }
-
-        HasLantern = true;
-
-        // Enable default light effect
-        _currentLightEffect = LightEffect.Reveal;
-        UpdateCurrentEffectData();
-
-        // Start mana regeneration
-        if (_manaRegenCoroutine != null)
-            StopCoroutine(_manaRegenCoroutine);
-        _manaRegenCoroutine = StartCoroutine(ManaRegeneration());
-
-        OnLanternAcquired?.Invoke();
-
-        if (_debugMode)
-            Debug.Log("🔦 Lantern acquired! Enhanced features enabled.");
-    }
-
-    /// <summary>
-    /// LEGACY METHOD: Activate lantern (F key functionality)
-    /// </summary>
-    public void ActivateLantern()
-    {
-        if (!HasLantern || IsLanternActive) return;
-
-        IsLanternActive = true;
-
-        // Enable visual components
-        if (_playerInnerLight2D != null)
-            _playerInnerLight2D.enabled = true;
-
-        if (_beamRenderer != null)
-            _beamRenderer.enabled = true;
-
-        if (_debugMode)
-            Debug.Log("🔦 Lantern activated");
-    }
-
-    /// <summary>
-    /// LEGACY METHOD: Deactivate lantern
-    /// </summary>
-    public void DeactivateLantern()
-    {
-        if (!IsLanternActive) return;
-
-        IsLanternActive = false;
-
-        // Clear all active effects
-        ClearAllEffects();
-
-        // Disable visual components
-        if (_playerInnerLight2D != null)
-            _playerInnerLight2D.enabled = false;
-
-        if (_beamRenderer != null)
-            _beamRenderer.enabled = false;
-
-        if (_debugMode)
-            Debug.Log("🔦 Lantern deactivated");
-    }
-
-    /// <summary>
-    /// LEGACY METHOD: Switch light types (mouse wheel)
-    /// </summary>
-    public void SwitchToLightType(LightType lightType)
-    {
-        if (!_discoveredLightTypes.Contains(lightType)) return;
-
-        _currentLightType = lightType;
-
-        // Map legacy light type to new effect
-        _currentLightEffect = MapLightTypeToEffect(lightType);
-        UpdateCurrentEffectData();
-
-        OnLightTypeChanged?.Invoke(lightType);
-
-        if (_debugMode)
-            Debug.Log($"🔦 Light type changed to: {lightType} ({_currentLightEffect})");
-    }
-
-    /// <summary>
-    /// LEGACY METHOD: Consume mana for abilities
-    /// </summary>
-    public bool ConsumeMana(float amount)
-    {
-        if (_currentMana < amount) return false;
-
-        _currentMana = Mathf.Max(0f, _currentMana - amount);
-        return true;
-    }
-
-    /// <summary>
-    /// LEGACY METHOD: Add mana (for pickups)
-    /// </summary>
-    public void AddMana(float amount)
-    {
-        _currentMana = Mathf.Min(_baseMana, _currentMana + amount);
-    }
-
-    #endregion
-
-    #region New Advanced Interface
-
-    /// <summary>
-    /// NEW: Switch to specific light effect
-    /// </summary>
-    public void SetLightEffect(LightEffect effect)
-    {
-        if (_currentLightEffect == effect) return;
-
-        // Clear current effects
-        ClearAllEffects();
-
-        _currentLightEffect = effect;
-        UpdateCurrentEffectData();
-
-        // Update legacy light type for compatibility
-        _currentLightType = MapEffectToLightType(effect);
-        OnLightTypeChanged?.Invoke(_currentLightType);
-
-        if (_debugMode)
-            Debug.Log($"💡 Light effect changed to: {effect}");
-    }
-
-    /// <summary>
-    /// NEW: Trigger burst effect (like Solar Flare)
-    /// </summary>
-    public void TriggerBurstEffect(LightEffect effect, Vector3 center, float range = -1f)
-    {
-        var effectData = GetEffectData(effect);
-        if (effectData == null) return;
-
-        float actualRange = range > 0 ? range : effectData.baseRange;
-
-        // Check mana cost
-        if (effectData.activationCost > 0 && !ConsumeMana(effectData.activationCost))
-        {
-            if (_debugMode)
-                Debug.Log($"❌ Not enough mana for {effect}");
-            return;
-        }
-
-        // Find all objects in burst radius
-        Collider2D[] colliders = Physics2D.OverlapCircleAll(center, actualRange, _interactionLayers);
-        var affected = new List<ILightInteractable>();
-
-        foreach (var collider in colliders)
-        {
-            var interactable = collider.GetComponent<ILightInteractable>();
-            if (interactable != null && interactable.RespondsToEffect(effect))
-            {
-                float distance = Vector3.Distance(center, collider.transform.position);
-                float intensity = CalculateIntensity(distance, actualRange);
-
-                if (intensity >= interactable.GetMinimumIntensity(effect))
-                {
-                    Vector2 direction = (collider.transform.position - center).normalized;
-                    interactable.OnLightEnter(effect, intensity, direction);
-                    affected.Add(interactable);
-                }
-            }
-        }
-
-        // Handle effect duration for burst effects
-        if (effectData.requiresContinuousLight == false && affected.Count > 0)
-        {
-            StartCoroutine(HandleBurstDuration(effect, affected, 3f)); // 3 second duration
-        }
-
-        if (_debugMode)
-            Debug.Log($"💥 Burst {effect}: {affected.Count} objects affected");
-    }
-
-    /// <summary>
-    /// NEW: Get current effect data
-    /// </summary>
-    public LightEffectData GetCurrentEffectData()
-    {
-        return _currentEffectData;
-    }
-
-    /// <summary>
-    /// NEW: Check if player has discovered specific effect
-    /// </summary>
-    public bool HasEffect(LightEffect effect)
-    {
-        return GetEffectData(effect) != null;
     }
 
     #endregion
@@ -507,74 +261,161 @@ public class EnhancedLanternController : MonoBehaviour
 
     private void HandleInput()
     {
-        if (!HasLantern) return;
-
-        // Lantern toggle (F key)
-        if (InputManager.LanternTogglePressed)
+        // Toggle lantern on/off (F key)
+        if (Input.GetKeyDown(KeyCode.F))
         {
-            if (IsLanternActive)
-                DeactivateLantern();
-            else
-                ActivateLantern();
-        }
-
-        // Light type cycling (mouse wheel) - Legacy compatibility
-        float scrollInput = Input.GetAxis("Mouse ScrollWheel");
-        if (scrollInput != 0f && _discoveredLightTypes.Count > 1)
-        {
-            CycleLightType(scrollInput > 0f);
-        }
-
-        // Advanced effect switching (number keys)
-        if (_enableAdvancedFeatures)
-        {
-            for (int i = 1; i <= 9; i++)
-            {
-                if (Input.GetKeyDown(KeyCode.Alpha0 + i))
-                {
-                    var effectIndex = i - 1;
-                    if (effectIndex < _availableEffects.Length)
-                    {
-                        SetLightEffect(_availableEffects[effectIndex].effectType);
-                    }
-                }
-            }
+            ToggleLantern();
         }
     }
 
-    private void CycleLightType(bool forward)
+    private void ToggleLantern()
     {
-        int currentIndex = _discoveredLightTypes.IndexOf(_currentLightType);
-        if (currentIndex == -1) return;
+        IsLanternActive = !IsLanternActive;
 
-        int newIndex;
-        if (forward)
-        {
-            newIndex = (currentIndex + 1) % _discoveredLightTypes.Count;
-        }
-        else
-        {
-            newIndex = currentIndex - 1;
-            if (newIndex < 0) newIndex = _discoveredLightTypes.Count - 1;
-        }
+        if (_beamRenderer != null)
+            _beamRenderer.enabled = IsLanternActive;
 
-        SwitchToLightType(_discoveredLightTypes[newIndex]);
+        if (_debugMode)
+            Debug.Log($"💡 Lantern {(IsLanternActive ? "ON" : "OFF")}");
     }
 
     #endregion
 
-    #region Light Detection and Effects
+    #region DIRECTIONAL BEAM SYSTEM
+
+    /// <summary>
+    /// NEW: Get beam direction based on player facing with optional mouse adjustment
+    /// This creates intentional, directional gameplay
+    /// </summary>
+    private Vector2 GetBeamDirection()
+    {
+        if (!_beamFollowsPlayerFacing)
+        {
+            // Legacy mode: full 360° mouse control
+            return GetBeamDirectionFromMouse();
+        }
+
+        // NEW DIRECTIONAL MODE: Beam follows player facing
+
+        // Get player facing direction (from PlayerMovement component or infer from velocity)
+        Vector2 playerFacingDirection = GetPlayerFacingDirection();
+
+        // Get mouse position for minor adjustment
+        Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        mousePos.z = 0f;
+        Vector3 beamOrigin = GetBeamOrigin();
+        Vector2 mouseDirection = ((Vector2)mousePos - (Vector2)beamOrigin).normalized;
+
+        // Calculate angle between player facing and mouse
+        float angleToMouse = Vector2.SignedAngle(playerFacingDirection, mouseDirection);
+
+        // Clamp mouse influence to aiming cone angle
+        float clampedAngle = Mathf.Clamp(angleToMouse, -_mouseAimingConeAngle, _mouseAimingConeAngle);
+
+        // Rotate player facing direction by clamped angle
+        Vector2 finalDirection = RotateVector2(playerFacingDirection, clampedAngle);
+
+        // Debug visualization
+        if (_debugBeamDirection && IsLanternActive)
+        {
+            // Player facing direction (BLUE)
+            Debug.DrawRay(beamOrigin, playerFacingDirection * 3f, Color.blue, 0.1f);
+
+            // Mouse direction (RED - may be clamped)
+            Debug.DrawRay(beamOrigin, mouseDirection * 2.5f, Color.red, 0.1f);
+
+            // Final beam direction (YELLOW)
+            Debug.DrawRay(beamOrigin, finalDirection * 5f, Color.yellow, 0.1f);
+
+            // Draw cone boundaries (GREEN)
+            Vector2 coneLeft = RotateVector2(playerFacingDirection, -_mouseAimingConeAngle);
+            Vector2 coneRight = RotateVector2(playerFacingDirection, _mouseAimingConeAngle);
+            Debug.DrawRay(beamOrigin, coneLeft * 4f, Color.green, 0.1f);
+            Debug.DrawRay(beamOrigin, coneRight * 4f, Color.green, 0.1f);
+        }
+
+        return finalDirection;
+    }
+
+    /// <summary>
+    /// Get player facing direction from PlayerMovement component or infer from velocity
+    /// </summary>
+    private Vector2 GetPlayerFacingDirection()
+    {
+        // Primary: Get from PlayerMovement component (most reliable)
+        if (_playerMovement != null)
+        {
+            // Use the public IsFacingRight property
+            return _playerMovement._isFacingRight ? Vector2.right : Vector2.left;
+        }
+
+        // Fallback 1: Check SpriteRenderer flip
+        SpriteRenderer spriteRenderer = GetComponent<SpriteRenderer>();
+        if (spriteRenderer != null)
+        {
+            return spriteRenderer.flipX ? Vector2.left : Vector2.right;
+        }
+
+        // Fallback 2: Check transform scale (least reliable)
+        return transform.localScale.x > 0 ? Vector2.right : Vector2.left;
+    }
+
+    /// <summary>
+    /// Legacy: Full 360° mouse control (used when _beamFollowsPlayerFacing is false)
+    /// </summary>
+    private Vector2 GetBeamDirectionFromMouse()
+    {
+        Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        mousePos.z = 0f;
+        Vector3 beamOrigin = GetBeamOrigin();
+        return ((Vector2)mousePos - (Vector2)beamOrigin).normalized;
+    }
+
+    /// <summary>
+    /// Get the starting point of the light beam (player position + offset)
+    /// </summary>
+    private Vector3 GetBeamOrigin()
+    {
+        // Beam originates from chest height
+        return transform.position + Vector3.up * 0.5f;
+    }
+
+    #endregion
+
+    #region Light Detection
 
     private void UpdateLightDetection()
     {
-        if (!IsLanternActive || _currentEffectData == null) return;
+        if (!IsLanternActive || _currentEffectData == null)
+        {
+            // Clear all active effects if light is off
+            if (_activeEffects.Count > 0)
+            {
+                var targets = new List<ILightInteractable>(_activeEffects.Keys);
+                foreach (var target in targets)
+                {
+                    EndEffect(target);
+                }
+            }
+            return;
+        }
 
-        Vector3 beamOrigin = GetBeamOriginFixed();
-        Vector2 beamDirection = GetBeamDirectionFixed();
+        // Consume mana
+        if (!ConsumeMana(_currentEffectData.continuousCost * Time.deltaTime))
+        {
+            // Out of mana, turn off lantern
+            IsLanternActive = false;
+            _beamRenderer.enabled = false;
+            return;
+        }
 
-        var newlyDetected = new HashSet<ILightInteractable>();
+        // Perform light detection
+        Vector3 beamOrigin = GetBeamOrigin();
+        Vector2 beamDirection = GetBeamDirection(); // Uses new directional system
 
-        // Perform light path calculation
+        HashSet<ILightInteractable> newlyDetected = new HashSet<ILightInteractable>();
+
+        // Calculate light path (supports reflection if enabled)
         CalculateLightPath(beamOrigin, beamDirection, newlyDetected);
 
         // Process changes in illumination
@@ -614,13 +455,16 @@ public class EnhancedLanternController : MonoBehaviour
 
             _currentLightPath.Add(currentPos);
         }
+
+        // Add final point
+        _currentLightPath.Add(currentPos + (Vector3)currentDir * remainingRange);
     }
 
     private void DetectAlongSegment(Vector3 startPos, Vector2 direction, float maxDistance, HashSet<ILightInteractable> detected)
     {
-        // Use cone detection for more natural light behavior
+        // Use cone detection for beam spread
         float halfAngle = _currentEffectData.baseWidth * 0.5f;
-        int rayCount = 5; // Multiple rays for cone detection
+        int rayCount = 5; // Number of rays in cone
 
         for (int i = 0; i < rayCount; i++)
         {
@@ -632,7 +476,16 @@ public class EnhancedLanternController : MonoBehaviour
 
             foreach (var hit in hits)
             {
+                // DON'T skip triggers - we need them for light detection!
+
                 var interactable = hit.collider.GetComponent<ILightInteractable>();
+
+                // If not on hit object, check parent
+                if (interactable == null)
+                {
+                    interactable = hit.collider.GetComponentInParent<ILightInteractable>();
+                }
+
                 if (interactable != null && interactable.RespondsToEffect(_currentLightEffect))
                 {
                     float intensity = CalculateIntensity(hit.distance, maxDistance);
@@ -659,6 +512,12 @@ public class EnhancedLanternController : MonoBehaviour
             if (!_activeEffects.ContainsKey(interactable))
             {
                 StartEffect(interactable, direction);
+            }
+            else
+            {
+                // Update existing effect
+                var instance = _activeEffects[interactable];
+                interactable.OnLightStay(_currentLightEffect, instance.intensity, direction, Time.deltaTime);
             }
         }
 
@@ -689,7 +548,7 @@ public class EnhancedLanternController : MonoBehaviour
         OnObjectIlluminated?.Invoke(target);
 
         if (_debugMode)
-            Debug.Log($"💡 Started {_currentLightEffect} effect on {target}");
+            Debug.Log($"💡 Started {_currentLightEffect} effect on {(target as MonoBehaviour)?.name}");
     }
 
     private void EndEffect(ILightInteractable target)
@@ -701,199 +560,35 @@ public class EnhancedLanternController : MonoBehaviour
             OnObjectLeftLight?.Invoke(target);
 
             if (_debugMode)
-                Debug.Log($"💡 Ended {instance.effectType} effect on {target}");
+                Debug.Log($"💡 Ended {instance.effectType} effect on {(target as MonoBehaviour)?.name}");
         }
     }
 
     private void UpdateActiveEffects()
     {
-        float deltaTime = Time.deltaTime;
-
-        // Consume mana for continuous effects
-        if (_currentEffectData.requiresContinuousLight && _activeEffects.Count > 0)
-        {
-            float manaCost = _currentEffectData.manaCostPerSecond * deltaTime;
-            if (!ConsumeMana(manaCost))
-            {
-                // Not enough mana - deactivate lantern
-                DeactivateLantern();
-                return;
-            }
-        }
-
-        // Update each active effect
-        foreach (var kvp in _activeEffects)
-        {
-            var instance = kvp.Value;
-            instance.target.OnLightStay(instance.effectType, instance.intensity, instance.direction, deltaTime);
-        }
-    }
-
-    private void ClearAllEffects()
-    {
-        foreach (var kvp in _activeEffects)
-        {
-            kvp.Key.OnLightExit(kvp.Value.effectType);
-            OnObjectLeftLight?.Invoke(kvp.Key);
-        }
-        _activeEffects.Clear();
+        // Currently just maintaining effects
+        // Could add time-based effects, pulsing, etc. here
     }
 
     #endregion
 
-    #region LANTERN POSITIONING FIXES
+    #region Mana System
 
-    [Header("Lantern Positioning Debug")]
-    [SerializeField] private bool _debugLanternPosition = true;
-
-    /// <summary>
-    /// Ensure lantern light sources are positioned at lantern, not player
-    /// </summary>
-    private void ValidateLanternPositioning()
+    private bool ConsumeMana(float amount)
     {
-        // Make sure floating lantern is properly connected
-        if (_floatingLantern == null)
+        if (_currentMana >= amount)
         {
-            _floatingLantern = GetComponentInChildren<FloatingLantern>();
-
-            if (_floatingLantern == null)
-            {
-                Debug.LogWarning("⚠️ No FloatingLantern found! Creating basic lantern position...");
-                CreateBasicLanternPosition();
-            }
+            _currentMana -= amount;
+            return true;
         }
-
-        // Validate that the lantern light is positioned correctly
-        if (_floatingLantern != null)
-        {
-            // Make sure the FloatingLantern's light components are the ones being used
-            Light2D lanternLight = _floatingLantern.GetComponent<Light2D>();
-            if (lanternLight != null && _playerInnerLight2D != lanternLight)
-            {
-                if (_debugLanternPosition)
-                    Debug.Log("🔄 Connecting to FloatingLantern's Light2D component");
-
-                _playerInnerLight2D = lanternLight;
-            }
-
-            if (_debugLanternPosition)
-            {
-                Debug.Log($"✓ Lantern positioned at: {_floatingLantern.transform.position}");
-                Debug.Log($"✓ Player positioned at: {transform.position}");
-                Debug.Log($"✓ Distance: {Vector3.Distance(_floatingLantern.transform.position, transform.position):F2}");
-            }
-        }
+        return false;
     }
 
-    /// <summary>
-    /// Create a basic lantern position if FloatingLantern component is missing
-    /// </summary>
-    private void CreateBasicLanternPosition()
+    private void RegenerateMana()
     {
-        GameObject lanternObj = new GameObject("BasicFloatingLantern");
-        lanternObj.transform.SetParent(transform);
-        lanternObj.transform.localPosition = new Vector3(1.5f, 0.8f, 0f);
-
-        // Add the FloatingLantern component
-        _floatingLantern = lanternObj.AddComponent<FloatingLantern>();
-
-        if (_debugLanternPosition)
-            Debug.Log("🔨 Created basic floating lantern at offset position");
-    }
-
-    /// <summary>
-    /// FIXED: Get beam origin from lantern position, not player
-    /// </summary>
-    private Vector3 GetBeamOriginFixed()
-    {
-        if (_floatingLantern != null)
+        if (_currentMana < _baseMana)
         {
-            // Use the FloatingLantern's beam origin if available
-            if (_floatingLantern.GetBeamOriginTransform() != null)
-                return _floatingLantern.GetBeamOriginTransform().position;
-
-            // Otherwise use the FloatingLantern's position
-            return _floatingLantern.transform.position;
-        }
-
-        // Fallback to player position with offset (should not happen in normal gameplay)
-        if (_debugLanternPosition)
-            Debug.LogWarning("⚠️ Falling back to player position for beam origin!");
-
-        return transform.position + Vector3.up * 0.5f;
-    }
-
-    /// <summary>
-    /// FIXED: Get beam direction from lantern to mouse, not player to mouse
-    /// </summary>
-    private Vector2 GetBeamDirectionFixed()
-    {
-        Vector3 mousePos = Camera.main.ScreenToWorldPoint(InputManager.MousePosition);
-        mousePos.z = 0f;
-        Vector3 beamOrigin = GetBeamOriginFixed(); // Use fixed origin
-        return ((Vector2)mousePos - (Vector2)beamOrigin).normalized;
-    }
-
-    /// <summary>
-    /// Ensure all lantern-based lights are positioned at the lantern
-    /// </summary>
-    private void UpdateLanternLightPositions()
-    {
-        if (_floatingLantern == null) return;
-
-        // The FloatingLantern should handle its own Light2D positioning
-        // We just need to make sure abilities/effects use the lantern position
-
-        // Update any ability effects to use lantern position
-        if (_currentEffectData != null && IsLanternActive)
-        {
-            Vector3 lanternPos = GetBeamOriginFixed();
-            Vector2 beamDir = GetBeamDirectionFixed();
-
-            // Make sure beam visualization starts from lantern
-            if (_beamRenderer != null && _beamRenderer.positionCount > 0)
-            {
-                _beamRenderer.SetPosition(0, lanternPos);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Debug visualization for lantern positioning
-    /// </summary>
-    private void OnDrawGizmosSelected()
-    {
-        if (!_debugLanternPosition) return;
-
-        // Draw player position
-        Gizmos.color = Color.blue;
-        Gizmos.DrawWireSphere(transform.position, 0.3f);
-        Gizmos.DrawLine(transform.position, transform.position + Vector3.up * 0.5f);
-
-        // Draw lantern position
-        if (_floatingLantern != null)
-        {
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawWireSphere(_floatingLantern.transform.position, 0.2f);
-
-            // Draw connection line
-            Gizmos.color = Color.cyan;
-            Gizmos.DrawLine(transform.position, _floatingLantern.transform.position);
-
-            // Draw beam direction if active
-            if (IsLanternActive && Application.isPlaying)
-            {
-                Vector3 beamOrigin = GetBeamOriginFixed();
-                Vector2 beamDir = GetBeamDirectionFixed();
-
-                Gizmos.color = Color.red;
-                Gizmos.DrawRay(beamOrigin, beamDir * 5f);
-            }
-        }
-        else
-        {
-            Gizmos.color = Color.red;
-            Gizmos.DrawWireCube(transform.position + new Vector3(1.5f, 0.8f, 0f), Vector3.one * 0.2f);
+            _currentMana = Mathf.Min(_currentMana + _manaRegenRate * Time.deltaTime, _baseMana);
         }
     }
 
@@ -903,24 +598,16 @@ public class EnhancedLanternController : MonoBehaviour
 
     private void UpdateVisualComponents()
     {
-        if (!IsLanternActive) return;
-
-        // Update inner light
-        if (_playerInnerLight2D != null && _currentEffectData != null)
+        // Update beam renderer
+        if (_beamRenderer != null && IsLanternActive)
         {
-            _playerInnerLight2D.color = _currentEffectData.effectColor;
-            _playerInnerLight2D.intensity = _currentEffectData.baseIntensity * 0.5f;
+            UpdateBeamVisualization();
         }
     }
 
     private void UpdateBeamVisualization()
     {
-        if (_beamRenderer == null || _currentLightPath.Count < 2)
-        {
-            if (_beamRenderer != null)
-                _beamRenderer.positionCount = 0;
-            return;
-        }
+        if (_beamRenderer == null || _currentLightPath.Count < 2) return;
 
         _beamRenderer.positionCount = _currentLightPath.Count;
         for (int i = 0; i < _currentLightPath.Count; i++)
@@ -928,11 +615,43 @@ public class EnhancedLanternController : MonoBehaviour
             _beamRenderer.SetPosition(i, _currentLightPath[i]);
         }
 
-        // Update beam color
+        // Update color based on current effect
         if (_currentEffectData != null)
         {
             _beamRenderer.startColor = _currentEffectData.effectColor;
+            Color endColor = _currentEffectData.effectColor;
+            endColor.a = 0.3f;
+            _beamRenderer.endColor = endColor;
         }
+    }
+
+    #endregion
+
+    #region Public API
+
+    public void AcquireLantern()
+    {
+        HasLantern = true;
+        _currentMana = _baseMana;
+
+        if (_debugMode)
+            Debug.Log("✨ Lantern acquired! Press F to toggle light.");
+
+        OnLanternAcquired?.Invoke();
+    }
+
+    public void SetLightEffect(LightEffect effect)
+    {
+        _currentLightEffect = effect;
+        UpdateCurrentEffectData();
+
+        if (_debugMode)
+            Debug.Log($"🔦 Light effect changed to: {effect}");
+    }
+
+    public bool CanAffordAbility(float manaCost)
+    {
+        return _currentMana >= manaCost;
     }
 
     #endregion
@@ -972,84 +691,31 @@ public class EnhancedLanternController : MonoBehaviour
         return null;
     }
 
-    private LightEffect MapLightTypeToEffect(LightType lightType)
-    {
-        return lightType switch
-        {
-            LightType.Ember => LightEffect.Reveal,
-            LightType.Radiance => LightEffect.Energize,
-            LightType.SolarFlare => LightEffect.Stun,
-            LightType.PrismaticLight => LightEffect.Refract,
-            LightType.Starlight => LightEffect.Purify,
-            LightType.MoonBeam => LightEffect.Shield,
-            LightType.VoidLight => LightEffect.Stealth,
-            _ => LightEffect.Reveal
-        };
-    }
-
-    private LightType MapEffectToLightType(LightEffect effect)
-    {
-        return effect switch
-        {
-            LightEffect.Reveal => LightType.Ember,
-            LightEffect.Energize => LightType.Radiance,
-            LightEffect.Stun => LightType.SolarFlare,
-            LightEffect.Refract => LightType.PrismaticLight,
-            LightEffect.Purify => LightType.Starlight,
-            LightEffect.Shield => LightType.MoonBeam,
-            LightEffect.Stealth => LightType.VoidLight,
-            _ => LightType.Ember
-        };
-    }
-
-    private IEnumerator HandleBurstDuration(LightEffect effect, List<ILightInteractable> affected, float duration)
-    {
-        yield return new WaitForSeconds(duration);
-
-        foreach (var interactable in affected)
-        {
-            if (interactable != null)
-            {
-                interactable.OnLightExit(effect);
-            }
-        }
-    }
-
-    private IEnumerator ManaRegeneration()
-    {
-        while (HasLantern)
-        {
-            if (_currentMana < _baseMana && !IsLanternActive)
-            {
-                _currentMana = Mathf.Min(_baseMana, _currentMana + _manaRegenRate * Time.deltaTime);
-            }
-            yield return null;
-        }
-    }
-
     #endregion
 
-    #region Debug Methods
+    #region Debug Visualization
 
-    [ContextMenu("Debug: Show Current Status")]
-    public void DebugShowStatus()
+    private void OnDrawGizmosSelected()
     {
-        Debug.Log($"=== ENHANCED LANTERN CONTROLLER STATUS ===");
-        Debug.Log($"Has Lantern: {HasLantern}");
-        Debug.Log($"Is Active: {IsLanternActive}");
-        Debug.Log($"Current Light Type: {CurrentLightType}");
-        Debug.Log($"Current Effect: {CurrentLightEffect}");
-        Debug.Log($"Mana: {_currentMana:F1}/{_baseMana:F1} ({ManaPercentage:P})");
-        Debug.Log($"Active Effects: {_activeEffects.Count}");
-        Debug.Log($"Advanced Features: {(_enableAdvancedFeatures ? "Enabled" : "Disabled")}");
-    }
+        if (!_debugLanternPosition || !HasLantern) return;
 
-    [ContextMenu("Debug: Test Solar Flare")]
-    public void DebugTestSolarFlare()
-    {
-        if (HasLantern)
+        Vector3 beamOrigin = GetBeamOrigin();
+
+        // Draw beam origin
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(beamOrigin, 0.2f);
+
+        if (_beamFollowsPlayerFacing && Application.isPlaying)
         {
-            TriggerBurstEffect(LightEffect.Stun, transform.position, 8f);
+            // Draw facing direction cone
+            Vector2 facingDir = GetPlayerFacingDirection();
+            Vector2 coneLeft = RotateVector2(facingDir, -_mouseAimingConeAngle);
+            Vector2 coneRight = RotateVector2(facingDir, _mouseAimingConeAngle);
+
+            Gizmos.color = Color.green;
+            Gizmos.DrawRay(beamOrigin, facingDir * 5f);
+            Gizmos.DrawRay(beamOrigin, coneLeft * 4f);
+            Gizmos.DrawRay(beamOrigin, coneRight * 4f);
         }
     }
 

@@ -13,14 +13,14 @@ MonoBehaviour:
   m_Name: Player Movement Stats
   m_EditorClassIdentifier: 
   MoveThreshold: 0.01
-  MaxWalkSpeed: 12.5
+  MaxWalkSpeed: 6
   GroundAcceleration: 5
   GroundDecceleration: 20
   AirAcceleration: 5
   AirDecceleration: 5
   WallJumpMoveAcceleration: 5
   WallJumpMoveDeceleration: 5
-  MaxRunSpeed: 20
+  MaxRunSpeed: 10
   GroundLayer:
     serializedVersion: 2
     m_Bits: 72
@@ -29,21 +29,21 @@ MonoBehaviour:
   HeadWidth: 0.75
   WallDetectionRayLength: 0.2
   WallDetectionRayHeightMultiplier: 0.9
-  JumpHeight: 4
+  JumpHeight: 3
   JumpHeightCompensationFactor: 1.1
   TimeTillJumpApex: 0.2
   GravityOnReleaseMultiplier: 3
-  MaxFallSpeed: 20
+  MaxFallSpeed: 15
   NumberOfJumpsAllowed: 2
   ResetJumpsOnWallSlide: 1
-  TimeForUpwardsCancel: 0.027
-  ApexThreshold: 0.969
-  ApexHangTime: 0.075
+  TimeForUpwardsCancel: 0.034
+  ApexThreshold: 0.988
+  ApexHangTime: 0.059
   JumpBufferTime: 0.125
   JumpCoyoteTime: 0.1
-  WallSlideSpeed: 5
+  WallSlideSpeed: 2
   WallSlideDecelerationSpeed: 50
-  WallJumpDirection: {x: -20, y: 6.5}
+  WallJumpDirection: {x: -3, y: 6.5}
   WallJumpPostBufferTime: 0.125
   WallJumpGravityOnReleaseMultiplier: 1
   DashTime: 0.11

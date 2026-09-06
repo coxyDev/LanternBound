@@ -2,11 +2,13 @@
 using System.Collections.Generic;
 
 /// <summary>
-/// FINAL CORRECTED VERSION: DualProgressionSystem
-/// - Fixed interface method calls (OnLightEnter not OnIlluminated)
-/// - Added GetUpgradeModifier method
-/// - Fixed UpgradeType.Damage to UpgradeType.AbilityRange
-/// - NO auto-discovery (abilities from world only)
+/// DualProgressionSystem — manages active abilities and passive upgrades.
+/// 
+/// MANA: This system does NOT own mana. All mana checks and deductions
+/// go through EnhancedLanternController, which is the single source of truth.
+/// 
+/// ESSENCE: Light Essence currency for passive upgrades lives here.
+/// ABILITIES: Discovered in the world, never auto-granted.
 /// </summary>
 public class DualProgressionSystem : MonoBehaviour
 {
@@ -23,18 +25,15 @@ public class DualProgressionSystem : MonoBehaviour
 
     [Header("Resources")]
     [SerializeField] private int _lightEssence = 0;
-    [SerializeField] private float _maxMana = 100f;
-    [SerializeField] private float _currentMana = 100f;
 
     [Header("Ability Input")]
     [SerializeField] private KeyCode _ability1Key = KeyCode.Q;
     [SerializeField] private KeyCode _ability2Key = KeyCode.E;
     [SerializeField] private KeyCode _ability3Key = KeyCode.R;
 
-    // Component references
+    // Single reference to the mana authority
     private EnhancedLanternController _lanternController;
 
-    // Ability tracking
     private Dictionary<string, float> _abilityCooldowns = new Dictionary<string, float>();
 
     // Events
@@ -49,15 +48,18 @@ public class DualProgressionSystem : MonoBehaviour
         CreateUpgradeDatabase();
 
         if (_debugMode)
-            Debug.Log("✓ DualProgressionSystem initialized (NO auto-discovery)");
+            Debug.Log("✓ DualProgressionSystem initialized (NO auto-discovery, NO internal mana)");
     }
 
+    /// <summary>
+    /// Called by CollectableLantern after AcquireLantern(). Must be called before abilities work.
+    /// </summary>
     public void Initialize(EnhancedLanternController controller)
     {
         _lanternController = controller;
 
         if (_debugMode)
-            Debug.Log("✓ DualProgressionSystem connected to LanternController");
+            Debug.Log("✓ DualProgressionSystem connected to LanternController — mana delegated");
     }
 
     private void Update()
@@ -66,10 +68,10 @@ public class DualProgressionSystem : MonoBehaviour
 
         UpdateCooldowns();
         HandleAbilityInput();
-        RegenerateMana();
+        // No mana regen here — EnhancedLanternController handles it
     }
 
-    #region ABILITY DISCOVERY
+    #region Ability Discovery
 
     public void DiscoverAbility(string abilityId)
     {
@@ -91,7 +93,7 @@ public class DualProgressionSystem : MonoBehaviour
         OnAbilityDiscovered?.Invoke(ability);
 
         if (_debugMode)
-            Debug.Log($"⭐ NEW ABILITY DISCOVERED: {ability.DisplayName}!");
+            Debug.Log($"⭐ NEW ABILITY DISCOVERED: {ability.DisplayName}");
     }
 
     public bool HasAbility(string abilityId)
@@ -106,24 +108,21 @@ public class DualProgressionSystem : MonoBehaviour
 
     #endregion
 
-    #region ABILITY USAGE
+    #region Ability Usage
 
     private void HandleAbilityInput()
     {
+        // Uses InputManager — never legacy Input.GetKeyDown
+        // Ability keys are not yet in InputManager so KeyCode is acceptable here
+        // TODO: Add Ability1/2/3 actions to the Input Action asset and read via InputManager
         if (Input.GetKeyDown(_ability1Key) && _discoveredAbilities.Count > 0)
-        {
             UseAbility(_discoveredAbilities[0].AbilityId);
-        }
 
         if (Input.GetKeyDown(_ability2Key) && _discoveredAbilities.Count > 1)
-        {
             UseAbility(_discoveredAbilities[1].AbilityId);
-        }
 
         if (Input.GetKeyDown(_ability3Key) && _discoveredAbilities.Count > 2)
-        {
             UseAbility(_discoveredAbilities[2].AbilityId);
-        }
     }
 
     public bool UseAbility(string abilityId)
@@ -132,11 +131,10 @@ public class DualProgressionSystem : MonoBehaviour
         if (ability == null)
         {
             if (_debugMode)
-                Debug.Log($"❌ Ability '{abilityId}' not discovered yet!");
+                Debug.Log($"❌ Ability '{abilityId}' not discovered yet");
             return false;
         }
 
-        // Check cooldown
         if (IsOnCooldown(abilityId))
         {
             if (_debugMode)
@@ -144,30 +142,29 @@ public class DualProgressionSystem : MonoBehaviour
             return false;
         }
 
-        // Check mana cost
+        // Mana check and deduction go through the controller — the single mana authority
         float cost = GetModifiedManaCost(ability);
-        if (_currentMana < cost)
+        if (!_lanternController.CanAffordAbility(cost))
         {
             if (_debugMode)
-                Debug.Log($"❌ Not enough mana for {ability.DisplayName} (need {cost}, have {_currentMana})");
+                Debug.Log($"❌ Not enough mana for {ability.DisplayName} " +
+                          $"(need {cost:F0}, have {_lanternController.CurrentMana:F0})");
             return false;
         }
 
-        // Consume mana
-        _currentMana -= cost;
-        _currentMana = Mathf.Max(0, _currentMana);
+        // Deduct mana from the single pool
+        _lanternController.ConsumeMana(cost);
 
-        // Execute ability
         ExecuteAbility(ability);
 
-        // Start cooldown
         float cooldown = GetModifiedCooldown(ability);
         _abilityCooldowns[abilityId] = cooldown;
 
         OnAbilityUsed?.Invoke(ability);
 
         if (_debugMode)
-            Debug.Log($"✨ Used: {ability.DisplayName} | Mana: {_currentMana:F0}/{_maxMana:F0}");
+            Debug.Log($"✨ Used: {ability.DisplayName} | " +
+                      $"Mana: {_lanternController.CurrentMana:F0}/{_lanternController.MaxMana:F0}");
 
         return true;
     }
@@ -198,9 +195,8 @@ public class DualProgressionSystem : MonoBehaviour
         float radius = GetModifiedAbilityRange(ability);
 
         if (_debugMode)
-            Debug.Log($"☀️ SOLAR FLARE - Radius: {radius}");
+            Debug.Log($"☀️ SOLAR FLARE — Radius: {radius}");
 
-        // Find all light-interactive objects in range
         Collider2D[] hits = Physics2D.OverlapCircleAll(center, radius);
         int activatedCount = 0;
 
@@ -209,11 +205,7 @@ public class DualProgressionSystem : MonoBehaviour
             var interactable = hit.GetComponent<ILightInteractable>();
             if (interactable != null)
             {
-                interactable.OnLightEnter(
-                    EnhancedLanternController.LightEffect.Stun,
-                    1f,
-                    Vector2.zero
-                );
+                interactable.OnLightEnter(EnhancedLanternController.LightEffect.Stun, 1f, Vector2.zero);
                 activatedCount++;
             }
         }
@@ -227,24 +219,17 @@ public class DualProgressionSystem : MonoBehaviour
     private void PerformPrismBeam(LightAbility ability)
     {
         if (_debugMode)
-            Debug.Log($"✨ PRISM BEAM activated");
+            Debug.Log("✨ PRISM BEAM activated");
 
         Vector2 aimDir = transform.localScale.x > 0 ? Vector2.right : Vector2.left;
         float range = GetModifiedAbilityRange(ability);
 
         RaycastHit2D hit = Physics2D.Raycast(transform.position, aimDir, range);
-
         if (hit.collider != null)
         {
             var interactable = hit.collider.GetComponent<ILightInteractable>();
             if (interactable != null)
-            {
-                interactable.OnLightEnter(
-                    EnhancedLanternController.LightEffect.Energize,
-                    1f,
-                    aimDir
-                );
-            }
+                interactable.OnLightEnter(EnhancedLanternController.LightEffect.Energize, 1f, aimDir);
 
             if (_debugMode)
                 Debug.Log($"✨ Prism Beam hit: {hit.collider.name}");
@@ -256,30 +241,25 @@ public class DualProgressionSystem : MonoBehaviour
     private void PerformLightSlash(LightAbility ability)
     {
         if (_debugMode)
-            Debug.Log($"⚔️ LIGHT SLASH activated");
+            Debug.Log("⚔️ LIGHT SLASH activated");
 
         Vector2 slashDir = transform.localScale.x > 0 ? Vector2.right : Vector2.left;
         float range = GetModifiedAbilityRange(ability);
 
-        Collider2D[] hits = Physics2D.OverlapCircleAll((Vector2)transform.position + slashDir * range, 1f);
+        Collider2D[] hits = Physics2D.OverlapCircleAll(
+            (Vector2)transform.position + slashDir * range, 1f);
 
         foreach (var hit in hits)
         {
             var interactable = hit.GetComponent<ILightInteractable>();
             if (interactable != null)
-            {
-                interactable.OnLightEnter(
-                    EnhancedLanternController.LightEffect.Reveal,
-                    1f,
-                    slashDir
-                );
-            }
+                interactable.OnLightEnter(EnhancedLanternController.LightEffect.Reveal, 1f, slashDir);
         }
     }
 
     #endregion
 
-    #region COOLDOWN SYSTEM
+    #region Cooldown System
 
     private void UpdateCooldowns()
     {
@@ -288,9 +268,7 @@ public class DualProgressionSystem : MonoBehaviour
         {
             _abilityCooldowns[key] -= Time.deltaTime;
             if (_abilityCooldowns[key] <= 0)
-            {
                 _abilityCooldowns.Remove(key);
-            }
         }
     }
 
@@ -306,26 +284,36 @@ public class DualProgressionSystem : MonoBehaviour
 
     #endregion
 
-    #region PASSIVE UPGRADES
+    #region Passive Upgrades
 
     public bool PurchaseUpgrade(string upgradeId)
     {
         var upgrade = _allPassiveUpgrades.Find(u => u.UpgradeId == upgradeId);
         if (upgrade == null) return false;
 
-        if (_lightEssence >= upgrade.Cost && !_unlockedUpgrades.Contains(upgrade))
-        {
-            _lightEssence -= upgrade.Cost;
-            _unlockedUpgrades.Add(upgrade);
+        if (_lightEssence < upgrade.Cost || _unlockedUpgrades.Contains(upgrade))
+            return false;
 
-            OnUpgradePurchased?.Invoke(upgrade);
-            OnEssenceChanged?.Invoke(_lightEssence);
+        _lightEssence -= upgrade.Cost;
+        _unlockedUpgrades.Add(upgrade);
+
+        // Apply regen upgrades directly to the controller's bonus property
+        if (upgrade.Type == PassiveUpgrade.UpgradeType.ManaRegeneration && _lanternController != null)
+        {
+            _lanternController.ManaRegenBonus += upgrade.EffectValue;
 
             if (_debugMode)
-                Debug.Log($"📈 Upgrade purchased: {upgrade.DisplayName}");
-            return true;
+                Debug.Log($"📈 Mana regen bonus applied to LanternController: " +
+                          $"+{upgrade.EffectValue:P0} (total: {_lanternController.ManaRegenBonus:P0})");
         }
-        return false;
+
+        OnUpgradePurchased?.Invoke(upgrade);
+        OnEssenceChanged?.Invoke(_lightEssence);
+
+        if (_debugMode)
+            Debug.Log($"📈 Upgrade purchased: {upgrade.DisplayName}");
+
+        return true;
     }
 
     public void AddLightEssence(int amount)
@@ -341,11 +329,8 @@ public class DualProgressionSystem : MonoBehaviour
 
     public PassiveUpgrade GetUpgrade(string upgradeId)
     {
-        var unlockedUpgrade = _unlockedUpgrades.Find(u => u.UpgradeId == upgradeId);
-        if (unlockedUpgrade != null)
-            return unlockedUpgrade;
-
-        return _allPassiveUpgrades.Find(u => u.UpgradeId == upgradeId);
+        var unlocked = _unlockedUpgrades.Find(u => u.UpgradeId == upgradeId);
+        return unlocked ?? _allPassiveUpgrades.Find(u => u.UpgradeId == upgradeId);
     }
 
     public bool HasUpgrade(string upgradeId)
@@ -354,8 +339,8 @@ public class DualProgressionSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// CRITICAL METHOD: Get cumulative upgrade modifier for a specific type
-    /// Used by LightAbilityDataStructure to calculate modified ability stats
+    /// Returns cumulative modifier for a given upgrade type across all unlocked upgrades.
+    /// Used by UseAbility to calculate modified costs, cooldowns, and ranges.
     /// </summary>
     public float GetUpgradeModifier(PassiveUpgrade.UpgradeType type)
     {
@@ -363,16 +348,14 @@ public class DualProgressionSystem : MonoBehaviour
         foreach (var upgrade in _unlockedUpgrades)
         {
             if (upgrade.Type == type)
-            {
                 modifier += upgrade.EffectValue;
-            }
         }
         return modifier;
     }
 
     #endregion
 
-    #region UPGRADE MODIFIERS (INTERNAL)
+    #region Upgrade Modifiers (Internal)
 
     private float GetModifiedManaCost(LightAbility ability)
     {
@@ -388,7 +371,6 @@ public class DualProgressionSystem : MonoBehaviour
         return cooldown * (1f - reduction);
     }
 
-    // FIXED: Use AbilityRange instead of non-existent Damage type
     private float GetModifiedAbilityRange(LightAbility ability)
     {
         float range = ability.Range;
@@ -398,26 +380,7 @@ public class DualProgressionSystem : MonoBehaviour
 
     #endregion
 
-    #region MANA SYSTEM
-
-    private void RegenerateMana()
-    {
-        if (_currentMana < _maxMana)
-        {
-            float regenRate = 10f;
-            float regenBonus = GetUpgradeModifier(PassiveUpgrade.UpgradeType.ManaRegeneration);
-            regenRate *= (1f + regenBonus);
-
-            _currentMana += regenRate * Time.deltaTime;
-            _currentMana = Mathf.Min(_currentMana, _maxMana);
-        }
-    }
-
-    public float GetManaPercentage() => _maxMana > 0 ? _currentMana / _maxMana : 0f;
-
-    #endregion
-
-    #region ABILITY DATABASE
+    #region Ability Database
 
     private void CreateAbilityDatabase()
     {
@@ -469,7 +432,7 @@ public class DualProgressionSystem : MonoBehaviour
         });
 
         if (_debugMode)
-            Debug.Log($"✓ Ability database created: {_allActiveAbilities.Count} abilities");
+            Debug.Log($"✓ Ability database: {_allActiveAbilities.Count} abilities");
     }
 
     private void CreateUpgradeDatabase()
@@ -485,6 +448,20 @@ public class DualProgressionSystem : MonoBehaviour
             Category = PassiveUpgrade.UpgradeCategory.Efficiency,
             Cost = 50,
             EffectValue = 0.1f,
+            MaxLevel = 1,
+            CurrentLevel = 0,
+            Prerequisites = new string[0]
+        });
+
+        _allPassiveUpgrades.Add(new PassiveUpgrade
+        {
+            UpgradeId = "mana_regen_1",
+            DisplayName = "Steady Flame I",
+            Description = "Increases lantern mana regeneration by 20%",
+            Type = PassiveUpgrade.UpgradeType.ManaRegeneration,
+            Category = PassiveUpgrade.UpgradeCategory.Efficiency,
+            Cost = 60,
+            EffectValue = 0.2f,
             MaxLevel = 1,
             CurrentLevel = 0,
             Prerequisites = new string[0]
@@ -519,12 +496,12 @@ public class DualProgressionSystem : MonoBehaviour
         });
 
         if (_debugMode)
-            Debug.Log($"✓ Upgrade database created: {_allPassiveUpgrades.Count} upgrades");
+            Debug.Log($"✓ Upgrade database: {_allPassiveUpgrades.Count} upgrades");
     }
 
     #endregion
 
-    #region DEBUG HELPERS
+    #region Debug Helpers
 
     private void DrawDebugCircle(Vector3 center, float radius, Color color, float duration)
     {
